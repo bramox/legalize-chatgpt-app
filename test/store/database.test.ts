@@ -392,6 +392,202 @@ Texto actualizado del artículo.`;
       assert.ok(results.length > 0, "Should find text after insert");
       // The trigger ensures FTS is synced for each insert operation
     });
+
+    describe("Spanish Law Research Bug Reproduction", () => {
+      before(() => {
+        // Add Ley 20/2007 fixture with Article 38 ter
+        const ley2007Content = `---
+identifier: BOE-A-2007-13409
+title: Ley 20/2007, de 11 de julio, del Estatuto del trabajo autónomo
+country: es
+rank: ley
+publication_date: 2007-07-12
+last_updated: 2025-01-03
+status: in_force
+source: BOE
+---
+# TÍTULO IV
+
+## CAPÍTULO I
+
+### Artículo 38 ter
+
+Cuota reducida para trabajadores autónomos en el segundo año de actividad. Los trabajadores autónomos que hayan venido disfrutando de la tarifa plana durante el primer año de actividad y cuyos rendimientos netos inferiores al salario mínimo interprofesional podrán beneficiarse de una cuota reducida en el segundo año.`;
+        const ley2007Frontmatter = parseFrontmatter(ley2007Content, "test.md");
+        const ley2007Record = frontmatterToLawRecord(
+          ley2007Frontmatter,
+          "es/BOE-A-2007-13409.md",
+          "abc123",
+          "es",
+        );
+        db.upsertLaw(ley2007Record);
+
+        const ley2007Body = extractMarkdownBody(ley2007Content);
+        const ley2007Chunks = chunkMarkdown(
+          ley2007Body,
+          "BOE-A-2007-13409",
+          "es",
+          "abc123",
+          "es/BOE-A-2007-13409.md",
+        );
+        db.insertArticleChunks(ley2007Chunks);
+
+        // Add Real Decreto Legislativo 8/2015 fixture with Article 308
+        const rdl2015Content = `---
+identifier: BOE-A-2015-11724
+title: Real Decreto Legislativo 8/2015, de 30 de octubre, por el que se aprueba el texto refundido de la Ley General de la Seguridad Social
+country: es
+rank: real_decreto_legislativo
+publication_date: 2015-10-31
+last_updated: 2025-01-03
+status: in_force
+source: BOE
+---
+# TÍTULO IV
+
+## CAPÍTULO I
+
+### Artículo 307
+
+Campo de aplicación del Régimen Especial de Trabajadores Autónomos.
+
+### Artículo 308
+
+Cotización. La cotización en este régimen especial se realizará de acuerdo con las bases y tipos de cotización establecidos. Los trabajadores autónomos podrán acogerse a bonificaciones o reducciones en la cuota.`;
+        const rdl2015Frontmatter = parseFrontmatter(rdl2015Content, "test.md");
+        const rdl2015Record = frontmatterToLawRecord(
+          rdl2015Frontmatter,
+          "es/BOE-A-2015-11724.md",
+          "def456",
+          "es",
+        );
+        db.upsertLaw(rdl2015Record);
+
+        const rdl2015Body = extractMarkdownBody(rdl2015Content);
+        const rdl2015Chunks = chunkMarkdown(
+          rdl2015Body,
+          "BOE-A-2015-11724",
+          "es",
+          "def456",
+          "es/BOE-A-2015-11724.md",
+        );
+        db.insertArticleChunks(rdl2015Chunks);
+      });
+
+      it("AC1: search_laws should find Ley 20/2007 for long Spanish query about reduced contribution", () => {
+        const query = "cuota reducida autonomos segundo año rendimientos netos inferiores salario mínimo interprofesional artículo 38 ter LGSS";
+        const results = db.searchLaws(query, "es", undefined, undefined, undefined, undefined, 10);
+
+        assert.ok(results.length > 0, "Query should return at least one result");
+        const ley2007Result = results.find(r => r.citation.identifier === "BOE-A-2007-13409");
+        assert.ok(ley2007Result, "Results should include Ley 20/2007 (BOE-A-2007-13409)");
+      });
+
+      it("AC2: search_laws should find same law family for alternative reduced contribution query", () => {
+        const query = "tarifa plana cuota reducida trabajadores autónomos segundo periodo rendimientos económicos netos salario mínimo interprofesional";
+        const results = db.searchLaws(query, "es", undefined, undefined, undefined, undefined, 10);
+
+        assert.ok(results.length > 0, "Query should return at least one result");
+        const ley2007Result = results.find(r => r.citation.identifier === "BOE-A-2007-13409");
+        assert.ok(ley2007Result, "Results should include Ley 20/2007 (BOE-A-2007-13409)");
+      });
+
+      it("should expand synonyms for Spanish legal concepts", () => {
+        // Test that alias "cuota reducida" finds content containing synonym "tarifa plana"
+        const results = db.searchLaws("cuota reducida", "es", undefined, undefined, undefined, undefined, 10);
+
+        assert.ok(results.length > 0, "Alias search should find results");
+        const ley2007Result = results.find(r => r.citation.identifier === "BOE-A-2007-13409");
+        assert.ok(ley2007Result, "Alias 'cuota reducida' should find Ley 20/2007 which contains 'tarifa plana'");
+      });
+
+      it("should prove alias-only retrieval with phrase-based expansion", () => {
+        // Create a fixture that contains only "tarifa plana" (not "cuota reducida")
+        const aliasOnlyContent = `---
+identifier: BOE-A-TEST-ALIAS-001
+title: Ley de prueba para alias
+country: es
+rank: ley
+publication_date: 2025-01-01
+last_updated: 2025-01-01
+status: in_force
+source: BOE
+---
+# TÍTULO I
+
+### Artículo 1
+
+Los trabajadores autónomos podrán acogerse a la tarifa plana durante el primer año de actividad.`;
+        const aliasOnlyFrontmatter = parseFrontmatter(aliasOnlyContent, "test.md");
+        const aliasOnlyRecord = frontmatterToLawRecord(
+          aliasOnlyFrontmatter,
+          "es/BOE-A-TEST-ALIAS-001.md",
+          "abc123",
+          "es",
+        );
+        db.upsertLaw(aliasOnlyRecord);
+
+        const aliasOnlyBody = extractMarkdownBody(aliasOnlyContent);
+        const aliasOnlyChunks = chunkMarkdown(
+          aliasOnlyBody,
+          "BOE-A-TEST-ALIAS-001",
+          "es",
+          "abc123",
+          "es/BOE-A-TEST-ALIAS-001.md",
+        );
+        db.insertArticleChunks(aliasOnlyChunks);
+
+        // Search using the alias "cuota reducida" (not present in the fixture)
+        const results = db.searchLaws("cuota reducida", "es", undefined, undefined, undefined, undefined, 10);
+
+        assert.ok(results.length > 0, "Alias search should find results through phrase-based expansion");
+        const aliasOnlyResult = results.find(r => r.citation.identifier === "BOE-A-TEST-ALIAS-001");
+        assert.ok(aliasOnlyResult, "Alias 'cuota reducida' should find fixture containing only 'tarifa plana'");
+      });
+
+      it("should preserve article numbers in search queries", () => {
+        const results = db.searchLaws("38 ter", "es", undefined, undefined, undefined, undefined, 10);
+        assert.ok(results.length > 0, "Article number search should find results");
+        const ley2007Result = results.find(r => r.citation.identifier === "BOE-A-2007-13409");
+        assert.ok(ley2007Result, "Article number search should find Ley 20/2007");
+      });
+
+      it("should return unique law identifiers for long Spanish query (deduplication regression test)", () => {
+        const query = "cuota reducida autonomos segundo año rendimientos netos inferiores salario mínimo interprofesional artículo 38 ter LGSS";
+        const results = db.searchLaws(query, "es", undefined, undefined, undefined, undefined, 10);
+
+        assert.ok(results.length > 0, "Query should return at least one result");
+
+        // Extract all identifiers from results
+        const identifiers = results.map(r => r.citation.identifier);
+
+        // Check that all identifiers are unique
+        const uniqueIdentifiers = new Set(identifiers);
+        assert.strictEqual(
+          identifiers.length,
+          uniqueIdentifiers.size,
+          `search_laws should return unique law identifiers. Found duplicates: ${identifiers}`
+        );
+      });
+
+      it("should return unique law identifiers for alternative long Spanish query (deduplication regression test)", () => {
+        const query = "tarifa plana cuota reducida trabajadores autónomos segundo periodo rendimientos económicos netos salario mínimo interprofesional";
+        const results = db.searchLaws(query, "es", undefined, undefined, undefined, undefined, 10);
+
+        assert.ok(results.length > 0, "Query should return at least one result");
+
+        // Extract all identifiers from results
+        const identifiers = results.map(r => r.citation.identifier);
+
+        // Check that all identifiers are unique
+        const uniqueIdentifiers = new Set(identifiers);
+        assert.strictEqual(
+          identifiers.length,
+          uniqueIdentifiers.size,
+          `search_laws should return unique law identifiers. Found duplicates: ${identifiers}`
+        );
+      });
+    });
   });
 
   describe("reforms", () => {

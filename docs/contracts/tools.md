@@ -67,6 +67,11 @@ When an output schema references `Shared Citation`, embed this object shape.
 }
 ```
 
+Error details may include optional candidate fields when available:
+
+- `unknown_law` errors may include `details.candidates`: an array of candidate law objects with `identifier`, `title`, `jurisdiction`, `status`, `rank`, `publication_date`, `last_updated`, `boe_url`, and `eli_url`.
+- `unknown_article` errors may include `details.suggestions`: an array of suggested article objects with `article_number`, `heading_path`, and `snippet`.
+
 Allowed error codes:
 
 - `invalid_input`
@@ -123,7 +128,7 @@ Output schema:
 
 ## get_law_metadata
 
-Use this when the user provides a stable law identifier and needs metadata without article text.
+Use this when the user provides a stable law identifier and needs metadata without article text. Stable identifiers are required (e.g., BOE-A-2007-13409). Natural-language law names should be resolved with search_laws first.
 
 Input schema:
 
@@ -160,7 +165,7 @@ Output schema:
 
 ## get_article
 
-Use this when the user asks for one article or bounded section by law identifier and article number.
+Use this when the user asks for one article or bounded section by law identifier and article number. Stable identifiers are required (e.g., BOE-A-2007-13409). Natural-language law names should be resolved with search_laws first.
 
 Input schema:
 

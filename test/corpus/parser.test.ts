@@ -238,6 +238,44 @@ Texto del artículo bis.`;
       assert.ok(chunks[0].text.includes("Texto del artículo bis"));
     });
 
+    it("should handle artículo with ter", () => {
+      const markdown = `# TÍTULO I
+
+Artículo 38 ter
+
+Texto del artículo ter.`;
+      const chunks = chunkMarkdown(
+        markdown,
+        "TEST-004b",
+        "es",
+        "abc123",
+        "es/TEST-004b.md",
+      );
+
+      assert.strictEqual(chunks.length, 1);
+      assert.strictEqual(chunks[0].article_number, "38 ter");
+      assert.ok(chunks[0].text.includes("Texto del artículo ter"));
+    });
+
+    it("should handle artículo with quater", () => {
+      const markdown = `# TÍTULO I
+
+Artículo 5 quater
+
+Texto del artículo quater.`;
+      const chunks = chunkMarkdown(
+        markdown,
+        "TEST-004c",
+        "es",
+        "abc123",
+        "es/TEST-004c.md",
+      );
+
+      assert.strictEqual(chunks.length, 1);
+      assert.strictEqual(chunks[0].article_number, "5 quater");
+      assert.ok(chunks[0].text.includes("Texto del artículo quater"));
+    });
+
     it("should handle article with heading marker", () => {
       const markdown = `# TÍTULO I
 

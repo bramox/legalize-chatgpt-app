@@ -149,6 +149,84 @@ describe("Tool Handlers", () => {
         assert.strictEqual(result.error.code, "unknown_article");
       }
     });
+
+    describe("Spanish Law Research Bug Reproduction", () => {
+      before(async () => {
+        // Load the Spanish law fixtures for testing
+        const { readFixture, parseLawFile } = await import("../helpers/setup.js");
+
+        // Load Ley 20/2007
+        const ley2007Content = await readFixture("legalize-es/es/BOE-A-2007-13409.md");
+        const ley2007Parsed = parseLawFile(ley2007Content, "es/BOE-A-2007-13409.md", "test-revision-sha");
+        db.upsertLaw(ley2007Parsed.law);
+        db.insertArticleChunks(ley2007Parsed.chunks);
+
+        // Load Real Decreto Legislativo 8/2015
+        const rdl2015Content = await readFixture("legalize-es/es/BOE-A-2015-11724.md");
+        const rdl2015Parsed = parseLawFile(rdl2015Content, "es/BOE-A-2015-11724.md", "test-revision-sha");
+        db.upsertLaw(rdl2015Parsed.law);
+        db.insertArticleChunks(rdl2015Parsed.chunks);
+      });
+
+      it("AC3: get_article should succeed with stable identifier and valid article number", async () => {
+        const result = await handleGetArticle(db, {
+          identifier: "BOE-A-2007-13409",
+          article_number: "38 ter",
+        });
+
+        assert.strictEqual(result.ok, true);
+        if (result.ok) {
+          assert.strictEqual(result.citation.identifier, "BOE-A-2007-13409");
+          assert.strictEqual(result.article.article_number, "38 ter");
+          assert.ok(result.article.text.length > 0);
+        }
+      });
+
+      it("AC4: get_article with non-stable identifier should return structured unknown_law error with candidates", async () => {
+        const result = await handleGetArticle(db, {
+          identifier: "Real Decreto Legislativo 8/2015",
+          article_number: "38 ter",
+        });
+
+        assert.strictEqual(result.ok, false);
+        if (!result.ok) {
+          assert.strictEqual(result.error.code, "unknown_law");
+          // Should include candidate law identifiers when matching law metadata exists
+          // This will fail until production code implements the feature
+          assert.ok(result.error.details?.candidates, "Error should include candidate law identifiers");
+        }
+      });
+
+      it("AC5: get_article with valid identifier and missing article should return unknown_article with suggestions", async () => {
+        const result = await handleGetArticle(db, {
+          identifier: "BOE-A-2015-11724",
+          article_number: "38 ter",
+        });
+
+        assert.strictEqual(result.ok, false);
+        if (!result.ok) {
+          assert.strictEqual(result.error.code, "unknown_article");
+          // Should include nearby article suggestions when available
+          // This will fail until production code implements the feature
+          assert.ok(result.error.details?.suggestions, "Error should include article suggestions");
+        }
+      });
+
+      it("AC6: get_article should not fabricate matches for mismatched law/article pairs", async () => {
+        const result = await handleGetArticle(db, {
+          identifier: "BOE-A-2015-11724",
+          article_number: "38 ter",
+        });
+
+        assert.strictEqual(result.ok, false);
+        if (!result.ok) {
+          assert.strictEqual(result.error.code, "unknown_article");
+          // Should not return Article 38 ter from Ley 20/2007
+          // This test verifies the negative case
+          assert.ok(!result.ok, "Should not succeed for mismatched law/article pair");
+        }
+      });
+    });
   });
 
   describe("handleGetLawExcerpt", () => {

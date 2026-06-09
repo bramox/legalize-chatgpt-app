@@ -20,6 +20,117 @@ describe("MCP Server", () => {
     await cleanupTempDir(tempDir);
   });
 
+  describe("Spanish Law Research Regression", () => {
+    let spanishTempDir: string;
+    let spanishDb: Awaited<ReturnType<typeof buildMinimalTestDatabase>>;
+
+    before(async () => {
+      spanishTempDir = await createTempDir();
+      spanishDb = await buildMinimalTestDatabase(spanishTempDir);
+
+      const { readFixture, parseLawFile } = await import("../helpers/setup.js");
+
+      const ley2007Content = await readFixture("legalize-es/es/BOE-A-2007-13409.md");
+      const ley2007Parsed = parseLawFile(ley2007Content, "es/BOE-A-2007-13409.md", "test-revision-sha");
+      spanishDb.upsertLaw(ley2007Parsed.law);
+      spanishDb.insertArticleChunks(ley2007Parsed.chunks);
+
+      const rdl2015Content = await readFixture("legalize-es/es/BOE-A-2015-11724.md");
+      const rdl2015Parsed = parseLawFile(rdl2015Content, "es/BOE-A-2015-11724.md", "test-revision-sha");
+      spanishDb.upsertLaw(rdl2015Parsed.law);
+      spanishDb.insertArticleChunks(rdl2015Parsed.chunks);
+    });
+
+    after(async () => {
+      spanishDb.close();
+      await cleanupTempDir(spanishTempDir);
+    });
+
+    it("returns unknown_article with suggestions for missing article number", async () => {
+      const server = createMcpServer(spanishDb);
+      const client = new Client({
+        name: "test-client",
+        version: "0.0.0",
+      });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+
+      try {
+        const result = await client.callTool({
+          name: "get_article",
+          arguments: {
+            identifier: "BOE-A-2015-11724",
+            article_number: "999999",
+          },
+        });
+
+        assert.strictEqual(result.isError, true);
+        const structuredContent = result.structuredContent as Record<string, unknown>;
+        assert.strictEqual(structuredContent.ok, false);
+        assert.strictEqual(
+          (structuredContent.error as Record<string, unknown>).code,
+          "unknown_article",
+        );
+        assert.ok(
+          (structuredContent.error as Record<string, unknown>).details,
+          "Error should include details",
+        );
+        const details = (structuredContent.error as Record<string, unknown>).details as Record<string, unknown>;
+        assert.ok(details.suggestions, "Details should include suggestions array");
+        assert.ok(Array.isArray(details.suggestions), "suggestions should be an array");
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    });
+
+    it("returns unknown_law with candidates for non-stable identifier", async () => {
+      const server = createMcpServer(spanishDb);
+      const client = new Client({
+        name: "test-client",
+        version: "0.0.0",
+      });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+
+      try {
+        const result = await client.callTool({
+          name: "get_article",
+          arguments: {
+            identifier: "Real Decreto Legislativo 8/2015",
+            article_number: "38 ter",
+          },
+        });
+
+        assert.strictEqual(result.isError, true);
+        const structuredContent = result.structuredContent as Record<string, unknown>;
+        assert.strictEqual(structuredContent.ok, false);
+        assert.strictEqual(
+          (structuredContent.error as Record<string, unknown>).code,
+          "unknown_law",
+        );
+        assert.ok(
+          (structuredContent.error as Record<string, unknown>).details,
+          "Error should include details",
+        );
+        const details = (structuredContent.error as Record<string, unknown>).details as Record<string, unknown>;
+        assert.ok(details.candidates, "Details should include candidates array");
+        assert.ok(Array.isArray(details.candidates), "candidates should be an array");
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    });
+  });
+
   it("registers five read-only tools without UI resources", async () => {
     const { client, server } = await connectTestClient();
 

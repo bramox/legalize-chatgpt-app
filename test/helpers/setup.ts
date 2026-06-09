@@ -4,6 +4,8 @@ import { LawDatabase, openDatabase } from "../../src/store/database.js";
 import { parseLawFile } from "../../src/corpus/parser.js";
 import type { LawRecord, ArticleChunk, ReformRecord } from "../../src/types/index.js";
 
+export { parseLawFile };
+
 /**
  * Create a temporary directory for test databases.
  */

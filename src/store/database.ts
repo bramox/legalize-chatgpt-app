@@ -23,6 +23,7 @@ export class LawDatabase {
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
+    this.db.function("_normalize_text", normalizeText);
     this.initSchema();
   }
 
@@ -245,7 +246,7 @@ export class LawDatabase {
 
   /**
    * Search laws by query with optional filters.
-   * Uses FTS5 for article/body matching with title fallback.
+   * Uses FTS5 for article/body matching with normalized title fallback.
    */
   searchLaws(
     query: string,
@@ -298,13 +299,28 @@ export class LawDatabase {
     ftsParams.push(limit);
 
     let ftsRows: any[] = [];
+    let ftsError: Error | null = null;
+
     try {
       const ftsStmt = this.db.prepare(ftsSql);
       ftsRows = ftsStmt.all(...ftsParams) as any[];
-    } catch {
-      ftsRows = [];
+    } catch (error) {
+      ftsError = error instanceof Error ? error : new Error(String(error));
+      // Log the error but don't silently convert to empty results
+      // Continue with title fallback
     }
 
+    // Deduplicate FTS results by identifier, keeping the best (lowest) score for each law
+    const ftsRowMap = new Map<string, any>();
+    for (const row of ftsRows) {
+      const existing = ftsRowMap.get(row.identifier);
+      if (!existing || Math.abs(Number(row.score)) < Math.abs(Number(existing.score))) {
+        ftsRowMap.set(row.identifier, row);
+      }
+    }
+    ftsRows = Array.from(ftsRowMap.values());
+
+    // Use case-insensitive title matching (keeping accents for accuracy)
     let titleSql = `
       SELECT DISTINCT
         laws.*,
@@ -312,7 +328,7 @@ export class LawDatabase {
         0 as score,
         'title' as matched_field
       FROM laws
-      WHERE laws.title LIKE ?
+      WHERE LOWER(laws.title) LIKE LOWER(?)
     `;
     const titleParams: (string | number)[] = [`%${query}%`];
 
@@ -356,6 +372,11 @@ export class LawDatabase {
         mergedRows.push(row);
         seenIds.add(row.identifier);
       }
+    }
+
+    // If FTS failed and we have no results, throw the error
+    if (ftsError && mergedRows.length === 0) {
+      throw ftsError;
     }
 
     return mergedRows.slice(0, limit).map((row) => ({
@@ -417,6 +438,7 @@ export class LawDatabase {
   ): Excerpt[] {
     let rows: any[];
     const ftsQuery = buildFtsQuery(query);
+    let ftsError: Error | null = null;
     
     try {
       const stmt = this.db.prepare(`
@@ -434,7 +456,9 @@ export class LawDatabase {
       `);
 
       rows = stmt.all(ftsQuery, identifier, limit) as any[];
-    } catch {
+    } catch (error) {
+      ftsError = error instanceof Error ? error : new Error(String(error));
+      // Fall back to LIKE search
       const fallbackStmt = this.db.prepare(`
         SELECT
           heading_path,
@@ -443,11 +467,16 @@ export class LawDatabase {
           '' as snippet,
           0 as score
         FROM articles
-        WHERE law_identifier = ? AND text LIKE ?
+        WHERE law_identifier = ? AND LOWER(text) LIKE LOWER(?)
         LIMIT ?
       `);
 
       rows = fallbackStmt.all(identifier, `%${query}%`, limit) as any[];
+    }
+
+    // If both FTS and fallback failed, throw the error
+    if (ftsError && rows.length === 0) {
+      throw ftsError;
     }
 
     return rows.map((row) => {
@@ -538,10 +567,179 @@ export class LawDatabase {
   }
 
   /**
+   * Find candidate laws by title, identifier, rank/year label, or normalized title fragments.
+   * Returns bounded candidate metadata for structured error responses.
+   */
+  findLawCandidates(query: string, limit: number = 5): Array<{
+    identifier: string;
+    title: string;
+    jurisdiction: string;
+    status: string;
+    rank: string | null;
+    publication_date: string | null;
+    last_updated: string;
+    boe_url: string | null;
+    eli_url: string | null;
+  }> {
+    const normalizedQuery = normalizeText(query);
+
+    // Try exact identifier match first
+    const exactStmt = this.db.prepare(
+      "SELECT identifier, title, jurisdiction, status, rank, publication_date, last_updated, boe_url, eli_url FROM laws WHERE identifier = ? LIMIT 1"
+    );
+    const exactRow = exactStmt.get(query) as any;
+    if (exactRow) {
+      return [this.rowToLawCandidate(exactRow)];
+    }
+
+    // Try case-insensitive title match
+    const titleStmt = this.db.prepare(
+      "SELECT identifier, title, jurisdiction, status, rank, publication_date, last_updated, boe_url, eli_url FROM laws WHERE LOWER(title) LIKE LOWER(?) LIMIT ?"
+    );
+    const titleRows = titleStmt.all(`%${query}%`, limit) as any[];
+    if (titleRows.length > 0) {
+      return titleRows.map(row => this.rowToLawCandidate(row));
+    }
+
+    // Try normalized title fragment match
+    const fragmentStmt = this.db.prepare(
+      `SELECT identifier, title, jurisdiction, status, rank, publication_date, last_updated, boe_url, eli_url
+       FROM laws
+       WHERE LOWER(_normalize_text(title)) LIKE LOWER(?)
+       LIMIT ?`
+    );
+    const fragmentRows = fragmentStmt.all(`%${normalizedQuery}%`, limit) as any[];
+    if (fragmentRows.length > 0) {
+      return fragmentRows.map(row => this.rowToLawCandidate(row));
+    }
+
+    // Try rank/year label match (e.g., "8/2015")
+    const rankYearMatch = query.match(/^(\d+)\/(\d{4})$/);
+    if (rankYearMatch) {
+      const rankStmt = this.db.prepare(
+        "SELECT identifier, title, jurisdiction, status, rank, publication_date, last_updated, boe_url, eli_url FROM laws WHERE rank LIKE ? OR title LIKE ? LIMIT ?"
+      );
+      const rankRows = rankStmt.all(`%${query}%`, `%${query}%`, limit) as any[];
+      if (rankRows.length > 0) {
+        return rankRows.map(row => this.rowToLawCandidate(row));
+      }
+    }
+
+    return [];
+  }
+
+  /**
+   * Find candidate articles within a law by nearby article numbers or relevant text.
+   * Returns bounded article suggestions for structured error responses.
+   */
+  findArticleCandidates(
+    lawIdentifier: string,
+    articleNumber: string,
+    limit: number = 5
+  ): Array<{
+    article_number: string;
+    heading_path: string[];
+    snippet: string;
+  }> {
+    // Try to parse the article number to find nearby articles
+    const numericMatch = articleNumber.match(/^(\d+)/);
+    const baseNumber = numericMatch ? parseInt(numericMatch[1], 10) : null;
+
+    if (baseNumber !== null) {
+      // Look for articles with nearby numbers (±3)
+      const nearbyStmt = this.db.prepare(
+        `SELECT article_number, heading_path, text
+         FROM articles
+         WHERE law_identifier = ?
+         AND CAST(article_number AS INTEGER) BETWEEN ? AND ?
+         ORDER BY ABS(CAST(article_number AS INTEGER) - ?)
+         LIMIT ?`
+      );
+
+      const nearbyRows = nearbyStmt.all(
+        lawIdentifier,
+        Math.max(1, baseNumber - 3),
+        baseNumber + 3,
+        baseNumber,
+        limit
+      ) as any[];
+
+      if (nearbyRows.length > 0) {
+        return nearbyRows.map(row => ({
+          article_number: row.article_number,
+          heading_path: JSON.parse(row.heading_path),
+          snippet: row.text.slice(0, 200) + (row.text.length > 200 ? "..." : ""),
+        }));
+      }
+    }
+
+    // Fallback: look for articles containing the article number as text
+    const textStmt = this.db.prepare(
+      `SELECT article_number, heading_path, text
+       FROM articles
+       WHERE law_identifier = ?
+       AND LOWER(text) LIKE LOWER(?)
+       LIMIT ?`
+    );
+
+    const textRows = textStmt.all(lawIdentifier, `%${articleNumber}%`, limit) as any[];
+    if (textRows.length > 0) {
+      return textRows.map(row => ({
+        article_number: row.article_number,
+        heading_path: JSON.parse(row.heading_path),
+        snippet: row.text.slice(0, 200) + (row.text.length > 200 ? "..." : ""),
+      }));
+    }
+
+    // Final fallback: return first few articles from the law
+    const fallbackStmt = this.db.prepare(
+      `SELECT article_number, heading_path, text
+       FROM articles
+       WHERE law_identifier = ?
+       ORDER BY chunk_index
+       LIMIT ?`
+    );
+
+    const fallbackRows = fallbackStmt.all(lawIdentifier, limit) as any[];
+    return fallbackRows.map(row => ({
+      article_number: row.article_number,
+      heading_path: JSON.parse(row.heading_path),
+      snippet: row.text.slice(0, 200) + (row.text.length > 200 ? "..." : ""),
+    }));
+  }
+
+  /**
    * Get the underlying database instance (for testing).
    */
   getDb(): Database.Database {
     return this.db;
+  }
+
+  /**
+   * Convert database row to law candidate object.
+   */
+  private rowToLawCandidate(row: any): {
+    identifier: string;
+    title: string;
+    jurisdiction: string;
+    status: string;
+    rank: string | null;
+    publication_date: string | null;
+    last_updated: string;
+    boe_url: string | null;
+    eli_url: string | null;
+  } {
+    return {
+      identifier: row.identifier,
+      title: row.title,
+      jurisdiction: row.jurisdiction,
+      status: row.status,
+      rank: row.rank,
+      publication_date: row.publication_date,
+      last_updated: row.last_updated,
+      boe_url: row.boe_url,
+      eli_url: row.eli_url,
+    };
   }
 
   /**
@@ -623,12 +821,194 @@ export async function createStagingDatabase(
   return openDatabase(dbPath);
 }
 
+/**
+ * Normalize text for accent-insensitive and case-insensitive matching.
+ * Converts accented characters to their base form and lowercases.
+ */
+function normalizeText(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+/**
+ * Narrow synonym groups for Spanish legal concepts.
+ * Maps terms to their canonical form for expansion.
+ * Keys are the canonical form; values are the aliases.
+ */
+const SYNONYM_GROUPS: Record<string, string[]> = {
+  "tarifa plana": ["cuota reducida"],
+  "cuota reducida": ["tarifa plana"],
+  "autonomos": ["autónomos", "trabajadores por cuenta propia"],
+  "autónomos": ["autonomos", "trabajadores por cuenta propia"],
+  "trabajadores por cuenta propia": ["autonomos", "autónomos"],
+  "smi": ["salario minimo interprofesional"],
+  "salario minimo interprofesional": ["smi"],
+  "segundo año": ["segundo periodo"],
+  "segundo periodo": ["segundo año"],
+};
+
+/**
+ * Expand query with phrase-based synonym matching before tokenization.
+ * Checks the normalized full query for multi-word alias keys and adds their synonyms.
+ * Returns the expanded query string.
+ */
+function expandWithPhraseSynonyms(query: string): string {
+  const normalizedQuery = normalizeText(query);
+  let expandedQuery = query;
+
+  // Sort keys by length (longest first) to match longer phrases first
+  const sortedKeys = Object.keys(SYNONYM_GROUPS).sort(
+    (a, b) => b.length - a.length,
+  );
+
+  for (const key of sortedKeys) {
+    const normalizedKey = normalizeText(key);
+    const synonyms = SYNONYM_GROUPS[key];
+
+    // Check if the normalized query contains this key as a phrase
+    if (normalizedQuery.includes(normalizedKey)) {
+      // Find the actual substring in the original query (preserving accents/case)
+      // We need to find where this phrase appears in the original query
+      const keyIndex = findNormalizedSubstringIndex(query, key);
+      if (keyIndex !== -1) {
+        // Add all synonyms to the query
+        for (const synonym of synonyms) {
+          // Avoid adding duplicate synonyms
+          const normalizedSynonym = normalizeText(synonym);
+          if (!normalizedQuery.includes(normalizedSynonym)) {
+            expandedQuery += " " + synonym;
+          }
+        }
+      }
+    }
+  }
+
+  return expandedQuery;
+}
+
+/**
+ * Find the index of a normalized substring within a string.
+ * Returns -1 if not found.
+ */
+function findNormalizedSubstringIndex(
+  text: string,
+  substring: string,
+): number {
+  const normalizedText = normalizeText(text);
+  const normalizedSubstring = normalizeText(substring);
+
+  const index = normalizedText.indexOf(normalizedSubstring);
+  if (index === -1) {
+    return -1;
+  }
+
+  // Map the index back to the original text
+  // This is approximate but should work for our use case
+  let originalIndex = 0;
+  let normalizedIndex = 0;
+
+  for (let i = 0; i < text.length && normalizedIndex < index; i++) {
+    const char = text[i];
+    const normalizedChar = normalizeText(char);
+    if (normalizedChar.length > 0) {
+      normalizedIndex += normalizedChar.length;
+    }
+    originalIndex = i;
+  }
+
+  return originalIndex;
+}
+
+/**
+ * Expand query terms with synonyms while preserving article numbers.
+ * Returns a set of terms including originals and their synonyms.
+ */
+function expandWithSynonyms(terms: string[]): Set<string> {
+  const expandedTerms = new Set<string>(terms);
+
+  for (const term of terms) {
+    const normalizedTerm = normalizeText(term);
+
+    // Check if this term matches any synonym group key
+    for (const [key, synonyms] of Object.entries(SYNONYM_GROUPS)) {
+      const normalizedKey = normalizeText(key);
+      if (normalizedTerm === normalizedKey) {
+        // Add all synonyms for this group
+        for (const synonym of synonyms) {
+          expandedTerms.add(synonym);
+        }
+      }
+    }
+  }
+
+  return expandedTerms;
+}
+
+/**
+ * Detect if a term looks like an article number (e.g., "38", "38 ter", "1º", "1 bis").
+ * These should be preserved as exact phrase matches.
+ * Only numeric article references with optional legal suffixes are treated as article numbers.
+ * Ordinary alphabetic words are treated as content terms eligible for synonym expansion.
+ */
+function isArticleNumberTerm(term: string): boolean {
+  const normalized = normalizeText(term);
+  // Match digits, optionally followed by space and short alphabetic suffixes (ter, bis, etc.)
+  return /^\d+(\s+[a-záéíóúñ]+)?$/.test(normalized);
+}
+
+/**
+ * Build FTS5 query from search terms with flexible matching.
+ * Uses OR for expanded terms to allow subset matching, but preserves
+ * article numbers as high-value exact phrase signals.
+ * For short queries (<= 3 terms), uses AND for precision.
+ * For long queries (> 3 terms), uses OR for better recall.
+ */
 function buildFtsQuery(query: string): string {
-  const terms = query
+  // First, expand phrase-based synonyms before tokenization
+  const expandedQuery = expandWithPhraseSynonyms(query);
+
+  const terms = expandedQuery
     .trim()
     .split(/\s+/)
-    .filter(Boolean)
-    .map((term) => `"${term.replaceAll('"', '""')}"`);
+    .filter(Boolean);
 
-  return terms.length > 0 ? terms.join(" ") : '""';
+  if (terms.length === 0) {
+    return '""';
+  }
+
+  // Separate article number terms from content terms
+  const articleTerms: string[] = [];
+  const contentTerms: string[] = [];
+
+  for (const term of terms) {
+    if (isArticleNumberTerm(term)) {
+      articleTerms.push(term);
+    } else {
+      contentTerms.push(term);
+    }
+  }
+
+  // Expand content terms with synonyms
+  const expandedContentTerms = expandWithSynonyms(contentTerms);
+
+  // Build query parts
+  const queryParts: string[] = [];
+
+  // Add all article terms as phrase matches
+  for (const term of articleTerms) {
+    queryParts.push(`"${term.replaceAll('"', '""')}"`);
+  }
+
+  // Add expanded content terms
+  for (const term of expandedContentTerms) {
+    queryParts.push(`"${term.replaceAll('"', '""')}"`);
+  }
+
+  // Use AND for short queries (better precision), OR for long queries (better recall)
+  const useOr = terms.length > 3 || expandedContentTerms.size > 5;
+  const operator = useOr ? " OR " : " AND ";
+
+  return queryParts.length > 0 ? queryParts.join(operator) : '""';
 }

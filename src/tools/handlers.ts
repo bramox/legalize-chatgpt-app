@@ -116,10 +116,18 @@ export async function handleGetArticle(
 
   const article = db.getArticle(args.identifier, args.article_number, args.max_chars);
   if (!article) {
-    return toolError("unknown_article", "The specified article was not found in the law.", {
-      identifier: args.identifier,
-      article_number: args.article_number,
-    });
+    const suggestions = db.findArticleCandidates(args.identifier, args.article_number);
+    return toolError(
+      "unknown_article",
+      suggestions.length > 0
+        ? "The specified article was not found in the law. Similar articles were found."
+        : "The specified article was not found in the law.",
+      {
+        identifier: args.identifier,
+        article_number: args.article_number,
+        ...(suggestions.length > 0 && { suggestions }),
+      },
+    );
   }
 
   return setCached(getCaches(db).article, cacheKey, {
@@ -204,9 +212,17 @@ function getLawForRequest(
 ): ParseResult<LawRecord> {
   const law = db.getLawMetadata(identifier);
   if (!law) {
-    return toolError("unknown_law", "No law was found for the supplied identifier.", {
-      identifier,
-    });
+    const candidates = db.findLawCandidates(identifier);
+    return toolError(
+      "unknown_law",
+      candidates.length > 0
+        ? "No law was found for the supplied identifier. Similar laws were found."
+        : "No law was found for the supplied identifier.",
+      {
+        identifier,
+        ...(candidates.length > 0 && { candidates }),
+      },
+    );
   }
 
   if (jurisdiction && law.jurisdiction !== jurisdiction) {

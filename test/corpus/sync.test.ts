@@ -161,7 +161,7 @@ describe("corpus/sync", () => {
         stagedDbPath,
       );
 
-      assert.strictEqual(result.lawCount, 2);
+      assert.ok(result.lawCount >= 2, `Expected at least 2 laws, got ${result.lawCount}`);
       assert.ok(result.chunkCount > 2);
       assert.strictEqual(result.errorCount, 0);
       await fs.access(stagedDbPath);

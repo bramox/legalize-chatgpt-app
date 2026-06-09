@@ -84,7 +84,7 @@ export function createMcpServer(db: LawDatabase): McpServer {
     "get_law_metadata",
     {
       description:
-        "Use this when the user provides a stable law identifier and needs metadata without article text.",
+        "Use this when the user provides a stable law identifier and needs metadata without article text. Stable identifiers are required (e.g., BOE-A-2007-13409). Natural-language law names should be resolved with search_laws first.",
       inputSchema: getLawMetadataInputSchema,
       outputSchema: getLawMetadataOutputSchema,
       annotations: toolAnnotations,
@@ -97,7 +97,7 @@ export function createMcpServer(db: LawDatabase): McpServer {
     "get_article",
     {
       description:
-        "Use this when the user asks for one article or bounded section by law identifier and article number.",
+        "Use this when the user asks for one article or bounded section by law identifier and article number. Stable identifiers are required (e.g., BOE-A-2007-13409). Natural-language law names should be resolved with search_laws first.",
       inputSchema: getArticleInputSchema,
       outputSchema: getArticleOutputSchema,
       annotations: toolAnnotations,

@@ -109,6 +109,14 @@
       "tools_triggered": "list_reforms",
       "expected_output": "Returns reform records with dates, commit links, summaries, and source URLs when available.",
       "expected_output_url": null
+    },
+    {
+      "description": "Search for a law by natural language label then retrieve an article.",
+      "user_prompt": "Find Ley 20/2007 and get Article 38 ter.",
+      "file_attachment_urls": null,
+      "tools_triggered": "search_laws, get_article",
+      "expected_output": "First returns law citations including BOE-A-2007-13409, then retrieves Article 38 ter with full text and citation metadata.",
+      "expected_output_url": null
     }
   ],
   "negative_test_cases": [
@@ -142,6 +150,14 @@
       "file_attachment_urls": null,
       "tools_triggered": null,
       "expected_output": "The app should not be invoked because scheduling is outside the supported legal research workflows.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Handle mismatched law and article pair with structured error.",
+      "user_prompt": "Get Article 38 ter from Real Decreto Legislativo 8/2015.",
+      "file_attachment_urls": null,
+      "tools_triggered": "get_article",
+      "expected_output": "Returns a structured unknown_law error with candidate law suggestions when the natural-language label does not match a stable identifier.",
       "expected_output_url": null
     }
   ]
