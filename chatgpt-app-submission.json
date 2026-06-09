@@ -1,0 +1,168 @@
+{
+  "$schema": "https://developers.openai.com/apps-sdk/schemas/chatgpt-app-submission.v1.json",
+  "schema_version": 1,
+  "app_info": {
+    "display_name": "Spanish Law Research",
+    "subtitle": "Research Spanish law",
+    "description": "Spanish Law Research helps users find Spanish legislation, inspect law metadata and article text, retrieve source-grounded excerpts, and review reform history with citations to Legalize, legalize-es, BOE, and source URLs. The app is a read-only legal research assistant and does not provide legal advice, submit forms, or change any government or third-party system.",
+    "category": "PRODUCTIVITY"
+  },
+  "tools": {
+    "search_laws": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Searches the local indexed Spanish legislation database and returns matching citations without modifying stored records.",
+        "open_world_justification": "Does not write to public internet state, submit forms, or change third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "get_law_metadata": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Retrieves metadata for an indexed law from the local database without modifying records.",
+        "open_world_justification": "Does not publish content or change external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "get_article": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Retrieves bounded article text and citation metadata from the local indexed corpus without changing data.",
+        "open_world_justification": "Does not submit, post, or modify information outside the app.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "get_law_excerpt": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Searches within one indexed law and returns bounded excerpts without modifying records.",
+        "open_world_justification": "Does not change public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "list_reforms": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Lists reform history records from the local database without creating or updating records.",
+        "open_world_justification": "Does not publish, submit, or mutate data in external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "compare_reform": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Validates the requested law and revision inputs and returns a bounded source-unavailable response without modifying records.",
+        "open_world_justification": "Does not change public internet state or external third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    }
+  },
+  "test_cases": [
+    {
+      "description": "Find Spanish legislation by topic.",
+      "user_prompt": "Find Spanish laws about personal data protection.",
+      "file_attachment_urls": null,
+      "tools_triggered": "search_laws",
+      "expected_output": "Returns relevant Spanish law citations with source URLs and short matched snippets.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Retrieve metadata for a known BOE law identifier.",
+      "user_prompt": "Show metadata for BOE-A-2018-16673.",
+      "file_attachment_urls": null,
+      "tools_triggered": "get_law_metadata",
+      "expected_output": "Returns the law citation, title, jurisdiction, status, source revision, and available metadata without article text.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Retrieve a bounded article from a known law.",
+      "user_prompt": "Get Article 1 of BOE-A-1889-4763.",
+      "file_attachment_urls": null,
+      "tools_triggered": "get_article",
+      "expected_output": "Returns Article 1 with citation metadata and indicates whether the text was truncated.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Find source-grounded excerpts inside a known law.",
+      "user_prompt": "In BOE-A-2018-16673, find excerpts about the data protection officer.",
+      "file_attachment_urls": null,
+      "tools_triggered": "get_law_excerpt",
+      "expected_output": "Returns bounded excerpts from the specified law with article numbers and citation metadata.",
+      "expected_output_url": null
+    },
+    {
+      "description": "List reform history for an indexed law.",
+      "user_prompt": "Show recent reforms for BOE-A-1889-4763.",
+      "file_attachment_urls": null,
+      "tools_triggered": "list_reforms",
+      "expected_output": "Returns reform records with dates, commit links, summaries, and source URLs when available.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Handle a comparison request for unavailable historical source text.",
+      "user_prompt": "Compare BOE-A-1889-4763 between revisions abc123456789 and def123456789.",
+      "file_attachment_urls": null,
+      "tools_triggered": "compare_reform",
+      "expected_output": "Returns a clear source_unavailable response explaining that historical source text is not available in the indexed corpus.",
+      "expected_output_url": null
+    }
+  ],
+  "negative_test_cases": [
+    {
+      "description": "Do not trigger for non-Spanish legal research.",
+      "user_prompt": "Find French laws about consumer data privacy.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked because it only supports Spanish legislation.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not trigger for requests to submit government forms.",
+      "user_prompt": "File a complaint with the Spanish Data Protection Agency for me.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked because it is read-only and cannot submit forms or act on behalf of the user.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not trigger for requests for legal advice or representation.",
+      "user_prompt": "Tell me exactly what I should do in court tomorrow and draft my legal strategy.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked for legal advice; ChatGPT should explain limitations and suggest consulting a qualified professional.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not trigger for unrelated productivity tasks.",
+      "user_prompt": "Schedule a meeting with my lawyer next Tuesday.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked because scheduling is outside the supported legal research workflows.",
+      "expected_output_url": null
+    }
+  ]
+}

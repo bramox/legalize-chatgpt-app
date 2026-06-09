@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "provider": "node",
+  "buildAptPackages": ["git"],
+  "deploy": {
+    "aptPackages": ["git", "ca-certificates"],
+    "startCommand": "pnpm start"
+  }
+}

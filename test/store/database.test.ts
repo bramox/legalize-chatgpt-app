@@ -1,0 +1,458 @@
+import { describe, it, before, after } from "node:test";
+import assert from "node:assert";
+import {
+  LawDatabase,
+  openDatabase,
+  createStagingDatabase,
+} from "../../src/store/database.js";
+import {
+  parseFrontmatter,
+  extractMarkdownBody,
+  chunkMarkdown,
+  frontmatterToLawRecord,
+} from "../../src/corpus/parser.js";
+import { createTempDir, cleanupTempDir } from "../helpers/setup.js";
+
+describe("store/database", () => {
+  let db: LawDatabase;
+  let tempDir: string;
+
+  before(async () => {
+    tempDir = await createTempDir();
+    const dbPath = `${tempDir}/test.db`;
+    db = await openDatabase(dbPath);
+  });
+
+  after(async () => {
+    db.close();
+    await cleanupTempDir(tempDir);
+  });
+
+  describe("schema initialization", () => {
+    it("should create all required tables", () => {
+      const tables = db
+        .getDb()
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+        )
+        .all() as { name: string }[];
+
+      const tableNames = tables.map((t) => t.name);
+      assert.ok(tableNames.includes("laws"));
+      assert.ok(tableNames.includes("articles"));
+      assert.ok(tableNames.includes("reforms"));
+      assert.ok(tableNames.includes("articles_fts"));
+    });
+
+    it("should create required indexes", () => {
+      const indexes = db
+        .getDb()
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%' ORDER BY name",
+        )
+        .all() as { name: string }[];
+
+      const indexNames = indexes.map((i) => i.name);
+      assert.ok(indexNames.includes("idx_laws_jurisdiction"));
+      assert.ok(indexNames.includes("idx_laws_status"));
+      assert.ok(indexNames.includes("idx_articles_law_identifier"));
+      assert.ok(indexNames.includes("idx_articles_article_number"));
+      assert.ok(indexNames.includes("idx_reforms_law_identifier"));
+      assert.ok(indexNames.includes("idx_reforms_date"));
+    });
+  });
+
+  describe("law records", () => {
+    it("should insert and retrieve law record", () => {
+      const content = `---
+identifier: BOE-A-1889-4763
+title: Real Decreto de 24 de julio de 1889 por el que se publica el Código Civil
+country: es
+rank: real_decreto
+publication_date: 1889-07-25
+last_updated: 2025-01-03
+status: in_force
+source: BOE
+---
+Content`;
+      const frontmatter = parseFrontmatter(content, "test.md");
+      const record = frontmatterToLawRecord(
+        frontmatter,
+        "es/BOE-A-1889-4763.md",
+        "abc123",
+        "es",
+      );
+
+      db.upsertLaw(record);
+
+      const retrieved = db.getLawMetadata(record.identifier);
+      assert.ok(retrieved);
+      assert.strictEqual(retrieved.identifier, record.identifier);
+      assert.strictEqual(retrieved.title, record.title);
+      assert.strictEqual(retrieved.jurisdiction, "es");
+    });
+
+    it("should update existing law record", () => {
+      const content = `---
+identifier: BOE-A-1889-4763
+title: Real Decreto de 24 de julio de 1889 por el que se publica el Código Civil
+country: es
+rank: real_decreto
+publication_date: 1889-07-25
+last_updated: 2025-01-03
+status: in_force
+source: BOE
+---
+Content`;
+      const frontmatter = parseFrontmatter(content, "test.md");
+      const record = frontmatterToLawRecord(
+        frontmatter,
+        "es/BOE-A-1889-4763.md",
+        "abc123",
+        "es",
+      );
+
+      db.upsertLaw(record);
+
+      // Update with new revision
+      record.source_revision = "def456";
+      record.last_updated = "2025-02-01";
+      db.upsertLaw(record);
+
+      const retrieved = db.getLawMetadata(record.identifier);
+      assert.ok(retrieved);
+      assert.strictEqual(retrieved.source_revision, "def456");
+      assert.strictEqual(retrieved.last_updated, "2025-02-01");
+    });
+
+    it("should handle nullable fields", async () => {
+      const record = {
+        identifier: "TEST-NULL-001",
+        title: "Test Law",
+        jurisdiction: "es",
+        status: "in_force",
+        rank: null,
+        publication_date: null,
+        last_updated: "2025-01-01",
+        source_revision: "abc",
+        legalize_path: "es/TEST-NULL-001.md",
+        github_url: "http://example.com",
+        raw_url: "http://example.com/raw",
+        boe_url: null,
+        eli_url: null,
+        url_html_consolidada: null,
+        url_pdf: null,
+        department: null,
+        subjects: null,
+        consolidation_status: null,
+        scope: null,
+        frontmatter: {},
+      };
+
+      db.upsertLaw(record);
+      const retrieved = db.getLawMetadata(record.identifier);
+      assert.ok(retrieved);
+      assert.strictEqual(retrieved.rank, null);
+      assert.strictEqual(retrieved.boe_url, null);
+    });
+  });
+
+  describe("article chunks", () => {
+    it("should insert and retrieve article chunks", () => {
+      const markdown = `# TÍTULO PRELIMINAR
+
+## CAPÍTULO I
+
+### Artículo 1
+
+Texto del artículo uno.`;
+      const chunks = chunkMarkdown(
+        markdown,
+        "BOE-A-1889-4763",
+        "es",
+        "abc123",
+        "es/BOE-A-1889-4763.md",
+      );
+
+      assert.strictEqual(chunks.length, 1);
+      db.insertArticleChunks(chunks);
+
+      const article = db.getArticle("BOE-A-1889-4763", "1");
+      assert.ok(article);
+      assert.strictEqual(article.article_number, "1");
+      assert.ok(article.text.length > 0);
+      assert.strictEqual(article.truncated, false);
+    });
+
+    it("should respect max_chars limit", () => {
+      const markdown = `# TÍTULO PRELIMINAR
+
+## CAPÍTULO I
+
+### Artículo 1
+
+Texto del artículo uno con suficiente contenido para probar el límite de caracteres.`;
+      const chunks = chunkMarkdown(
+        markdown,
+        "BOE-A-1889-4763",
+        "es",
+        "abc123",
+        "es/BOE-A-1889-4763.md",
+      );
+
+      assert.strictEqual(chunks.length, 1);
+      db.insertArticleChunks(chunks);
+
+      const article = db.getArticle("BOE-A-1889-4763", "1", 10);
+      assert.ok(article);
+      assert.ok(article.text.length <= 10);
+      assert.strictEqual(article.truncated, true);
+    });
+
+    it("should return null for unknown article", () => {
+      const article = db.getArticle("UNKNOWN", "999");
+      assert.strictEqual(article, null);
+    });
+  });
+
+  describe("full-text search", () => {
+    before(() => {
+      // Load inline content for search tests
+      const nationalContent = `---
+identifier: BOE-A-1889-4763
+title: Real Decreto de 24 de julio de 1889 por el que se publica el Código Civil
+country: es
+rank: real_decreto
+publication_date: 1889-07-25
+last_updated: 2025-01-03
+status: in_force
+source: BOE
+---
+# TÍTULO PRELIMINAR
+
+## CAPÍTULO I
+
+### Artículo 1
+
+Las fuentes del ordenamiento jurídico español son la ley, la costumbre y los principios generales del derecho.`;
+      const nationalFrontmatter = parseFrontmatter(
+        nationalContent,
+        "test.md",
+      );
+      const nationalRecord = frontmatterToLawRecord(
+        nationalFrontmatter,
+        "es/BOE-A-1889-4763.md",
+        "abc123",
+        "es",
+      );
+      db.upsertLaw(nationalRecord);
+
+      const nationalBody = extractMarkdownBody(nationalContent);
+      const nationalChunks = chunkMarkdown(
+        nationalBody,
+        "BOE-A-1889-4763",
+        "es",
+        "abc123",
+        "es/BOE-A-1889-4763.md",
+      );
+      assert.strictEqual(nationalChunks.length, 1, "Should create one chunk for national law");
+      db.insertArticleChunks(nationalChunks);
+
+      const regionalContent = `---
+identifier: DOGC-1234-2025
+title: Ley de protección de datos de Cataluña
+country: es
+rank: ley
+publication_date: 2025-01-15
+last_updated: 2025-02-20
+status: in_force
+source: DOGC
+---
+# TÍTULO I
+
+Disposiciones generales
+
+## CAPÍTULO ÚNICO
+
+Objeto y ámbito de aplicación
+
+### Artículo 1
+
+La presente ley tiene por objeto regular la protección de las personas físicas en lo que respecta al tratamiento de sus datos de carácter personal en Cataluña.`;
+      const regionalFrontmatter = parseFrontmatter(
+        regionalContent,
+        "test.md",
+      );
+      const regionalRecord = frontmatterToLawRecord(
+        regionalFrontmatter,
+        "es-ct/DOGC-1234-2025.md",
+        "def456",
+        "es-ct",
+      );
+      db.upsertLaw(regionalRecord);
+
+      const regionalBody = extractMarkdownBody(regionalContent);
+      const regionalChunks = chunkMarkdown(
+        regionalBody,
+        "DOGC-1234-2025",
+        "es-ct",
+        "def456",
+        "es-ct/DOGC-1234-2025.md",
+      );
+      assert.strictEqual(regionalChunks.length, 1, "Should create one chunk for regional law");
+      db.insertArticleChunks(regionalChunks);
+    });
+
+    it("should search laws by query", () => {
+      const results = db.searchLaws("Código Civil");
+      assert.ok(results.length > 0);
+      assert.ok(results[0].citation.title.includes("Código Civil"));
+    });
+
+    it("should return FTS-backed snippets and scores for body matches", () => {
+      const results = db.searchLaws("fuentes");
+      assert.ok(results.length > 0);
+      assert.ok(results[0].snippet.includes("<mark>fuentes</mark>"));
+      assert.ok(results[0].score > 0, "FTS-backed result should have a positive normalized score");
+      assert.deepStrictEqual(results[0].matched_fields, ["body"]);
+    });
+
+    it("should filter by jurisdiction", () => {
+      const results = db.searchLaws("protección", "es-ct");
+      assert.ok(results.length > 0);
+      assert.strictEqual(results[0].citation.jurisdiction, "es-ct");
+    });
+
+    it("should filter by status", () => {
+      const results = db.searchLaws("Código", undefined, "in_force");
+      assert.ok(results.length > 0);
+      results.forEach((r) => {
+        assert.strictEqual(r.citation.status, "in_force");
+      });
+    });
+
+    it("should respect limit", () => {
+      const results = db.searchLaws("ley", undefined, undefined, undefined, undefined, undefined, 2);
+      assert.ok(results.length <= 2);
+    });
+
+    it("should search excerpts within a law", () => {
+      const excerpts = db.searchExcerpts("BOE-A-1889-4763", "fuentes");
+      assert.ok(excerpts.length > 0);
+      assert.ok(excerpts[0].text.length > 0);
+      assert.ok(excerpts[0].score > 0, "FTS-backed excerpt should have a positive normalized score");
+    });
+
+    it("should return empty array for no matches", () => {
+      const results = db.searchLaws("nonexistentxyz123");
+      assert.strictEqual(results.length, 0);
+    });
+
+    it("should keep FTS consistent when article is updated", () => {
+      // Insert initial article
+      const markdown = `# TÍTULO I
+
+### Artículo 99
+
+Texto original del artículo.`;
+      const chunks = chunkMarkdown(
+        markdown,
+        "BOE-A-1889-4763",
+        "es",
+        "abc123",
+        "es/BOE-A-1889-4763.md",
+      );
+      db.insertArticleChunks(chunks);
+
+      // Search should find the article
+      let results = db.searchExcerpts("BOE-A-1889-4763", "texto");
+      assert.ok(results.length > 0, "Should find original text");
+
+      // Update the article by inserting a new chunk with same article number
+      const updatedMarkdown = `# TÍTULO I
+
+### Artículo 99
+
+Texto actualizado del artículo.`;
+      const updatedChunks = chunkMarkdown(
+        updatedMarkdown,
+        "BOE-A-1889-4763",
+        "es",
+        "def456",
+        "es/BOE-A-1889-4763.md",
+      );
+      db.insertArticleChunks(updatedChunks);
+
+      // Search should find the updated text
+      results = db.searchExcerpts("BOE-A-1889-4763", "actualizado");
+      assert.ok(results.length > 0, "Should find updated text");
+
+      // Search should still find "texto" in both old and new chunks
+      results = db.searchExcerpts("BOE-A-1889-4763", "texto");
+      assert.ok(results.length > 0, "Should find text after insert");
+      // The trigger ensures FTS is synced for each insert operation
+    });
+  });
+
+  describe("reforms", () => {
+    it("should insert and list reforms", () => {
+      const reforms = [
+        {
+          law_identifier: "BOE-A-1889-4763",
+          commit_sha: "abc123",
+          date: "2025-01-01",
+          source_id: "BOE-A-2025-0001",
+          disposition_id: "BOE-A-2025-0001",
+          affected_articles: ["1", "2"],
+          summary: "Modificación del artículo 1",
+          github_commit_url: "https://github.com/test/commit/abc123",
+          source_url: "https://www.boe.es/test",
+        },
+        {
+          law_identifier: "BOE-A-1889-4763",
+          commit_sha: "def456",
+          date: "2025-02-01",
+          source_id: null,
+          disposition_id: null,
+          affected_articles: null,
+          summary: "Actualización general",
+          github_commit_url: "https://github.com/test/commit/def456",
+          source_url: null,
+        },
+      ];
+
+      db.insertReforms(reforms);
+
+      const listed = db.listReforms("BOE-A-1889-4763");
+      assert.strictEqual(listed.length, 2);
+      assert.strictEqual(listed[0].commit_sha, "def456"); // Most recent first
+      assert.strictEqual(listed[1].commit_sha, "abc123");
+    });
+
+    it("should filter reforms by date range", () => {
+      const reforms = db.listReforms("BOE-A-1889-4763", "2025-01-15", "2025-02-15");
+      assert.strictEqual(reforms.length, 1);
+      assert.strictEqual(reforms[0].commit_sha, "def456");
+    });
+
+    it("should handle nullable affected_articles", () => {
+      const reforms = db.listReforms("BOE-A-1889-4763");
+      const reformWithNull = reforms.find((r) => r.affected_articles === null);
+      assert.ok(reformWithNull);
+    });
+
+    it("should respect limit", () => {
+      const reforms = db.listReforms("BOE-A-1889-4763", undefined, undefined, 1);
+      assert.strictEqual(reforms.length, 1);
+    });
+  });
+
+  describe("statistics", () => {
+    it("should return database statistics", () => {
+      const stats = db.getStats();
+      assert.ok(stats.lawCount > 0);
+      assert.ok(stats.articleCount > 0);
+      assert.ok(stats.reformCount > 0);
+    });
+  });
+});
