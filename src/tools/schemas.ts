@@ -6,7 +6,6 @@ import type {
   Excerpt,
   Jurisdiction,
   LawMetadata,
-  ReformComparison,
   ReformListItem,
   SearchResult,
   ToolError,
@@ -49,7 +48,6 @@ export const toolErrorCodes = [
 const identifierSchema = z.string().min(3).max(80);
 const articleNumberSchema = z.string().min(1).max(40);
 const querySchema = z.string().trim().min(2).max(300);
-const revisionSchema = z.string().min(7).max(64);
 const cursorSchema = z.string().min(1).max(500);
 const jurisdictionSchema = z.enum(jurisdictionValues);
 const dateSchema = z.string().refine(isValidDate, {
@@ -122,22 +120,6 @@ export const listReformsInputSchema = z
       .max(config.maxReformResults)
       .default(config.defaultReformLimit),
     cursor: cursorSchema.optional(),
-  })
-  .strict();
-
-export const compareReformInputSchema = z
-  .object({
-    identifier: identifierSchema,
-    base_revision: revisionSchema,
-    target_revision: revisionSchema,
-    article_number: articleNumberSchema.optional(),
-    jurisdiction: jurisdictionSchema.optional(),
-    max_chars: z
-      .number()
-      .int()
-      .min(1000)
-      .max(config.maxArticleChars)
-      .default(config.defaultArticleChars),
   })
   .strict();
 
@@ -217,18 +199,6 @@ const reformSchema = z
   })
   .strict();
 
-const reformComparisonSchema = z
-  .object({
-    base_revision: z.string(),
-    target_revision: z.string(),
-    article_number: z.string(),
-    before_text: z.string(),
-    after_text: z.string(),
-    diff_summary: z.string(),
-    truncated: z.boolean(),
-  })
-  .strict();
-
 export const searchLawsOutputSchema = z
   .object({
     ok: z.literal(true),
@@ -270,20 +240,11 @@ export const listReformsOutputSchema = z
   })
   .strict();
 
-export const compareReformOutputSchema = z
-  .object({
-    ok: z.literal(true),
-    citation: sharedCitationSchema,
-    comparison: reformComparisonSchema,
-  })
-  .strict();
-
 export type SearchLawsInput = z.infer<typeof searchLawsInputSchema>;
 export type GetLawMetadataInput = z.infer<typeof getLawMetadataInputSchema>;
 export type GetArticleInput = z.infer<typeof getArticleInputSchema>;
 export type GetLawExcerptInput = z.infer<typeof getLawExcerptInputSchema>;
 export type ListReformsInput = z.infer<typeof listReformsInputSchema>;
-export type CompareReformInput = z.infer<typeof compareReformInputSchema>;
 
 export type SharedCitation = Citation;
 export type SearchLawsOutput = SearchResult;
@@ -324,11 +285,6 @@ export type ListReformsResponse = ToolResponse<{
   next_cursor: string | null;
 }>;
 
-export type CompareReformResponse = ToolResponse<{
-  citation: Citation;
-  comparison: ReformComparison;
-}>;
-
 export function isValidJurisdiction(value: string): value is Jurisdiction {
   return SUPPORTED_JURISDICTIONS.includes(value as Jurisdiction);
 }
@@ -359,10 +315,6 @@ export function isValidArticleNumber(value: string): boolean {
 export function isValidQuery(value: string): boolean {
   const trimmed = value.trim();
   return trimmed.length >= 2 && trimmed.length <= 300;
-}
-
-export function isValidRevision(value: string): boolean {
-  return typeof value === "string" && value.length >= 7 && value.length <= 64;
 }
 
 export function validateLimit(

@@ -6,7 +6,6 @@ import {
   isValidIdentifier,
   isValidArticleNumber,
   isValidQuery,
-  isValidRevision,
   validateLimit,
   validateMaxChars,
   SUPPORTED_JURISDICTIONS,
@@ -82,20 +81,6 @@ describe("Tool Schemas", () => {
       assert.strictEqual(isValidQuery("a"), false);
       assert.strictEqual(isValidQuery(""), false);
       assert.strictEqual(isValidQuery("a".repeat(301)), false);
-    });
-  });
-
-  describe("isValidRevision", () => {
-    it("should accept valid revisions", () => {
-      assert.strictEqual(isValidRevision("a".repeat(7)), true);
-      assert.strictEqual(isValidRevision("a".repeat(64)), true);
-      assert.strictEqual(isValidRevision("abc1234"), true);
-    });
-
-    it("should reject invalid revisions", () => {
-      assert.strictEqual(isValidRevision("a".repeat(6)), false);
-      assert.strictEqual(isValidRevision("a".repeat(65)), false);
-      assert.strictEqual(isValidRevision(""), false);
     });
   });
 

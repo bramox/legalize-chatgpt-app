@@ -16,7 +16,6 @@ Spanish Law Research helps users find relevant laws, inspect concrete articles, 
 - Explain source excerpts in plain language without hiding original legal text
 - Identify related laws or articles when users describe situations
 - Show reform history, affected articles, dates, and source links
-- Compare two versions of a law or article when version data is available
 
 ## Supported Jurisdictions
 
@@ -103,7 +102,6 @@ The app provides the following MCP tools:
 - **get_article** - Retrieve one article or bounded section by law identifier and article number
 - **get_law_excerpt** - Get a bounded excerpt about a topic inside a known law
 - **list_reforms** - List reform history for a law
-- **compare_reform** - Compare a law or article between two known revisions
 
 See [Tool Contracts](./docs/contracts/tools.md) for detailed API documentation.
 

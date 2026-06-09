@@ -30,7 +30,7 @@ Spanish legislation changes over time and can differ across national and autonom
 2. Show the exact law, article, source link, jurisdiction, status, and last update date.
 3. Explain source excerpts in plain language without hiding the original legal text.
 4. Map a user's situation to potentially relevant norms while asking clarifying questions when facts are missing.
-5. Compare reforms or versions when a law has changed.
+5. Surface reform history when a law has changed.
 6. Help users prepare better questions for a lawyer, public office, gestor, or other qualified professional.
 
 ## Product Principles
@@ -52,7 +52,6 @@ Spanish legislation changes over time and can differ across national and autonom
 - Identify related laws or articles when the user describes a situation.
 - Highlight when several jurisdictions or law types may be relevant.
 - Show reform history, affected articles, dates, and source links where available.
-- Compare two versions of a law or article when version data is available.
 - Encourage users to read the source and consult a qualified professional for decisions with legal consequences.
 
 ## What The App Should Not Do

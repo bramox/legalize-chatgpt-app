@@ -5,7 +5,6 @@ import { config } from "../config.js";
 import { ATTRIBUTION, DISCLAIMER } from "../constants.js";
 import type { LawDatabase } from "../store/database.js";
 import {
-  handleCompareReform,
   handleGetArticle,
   handleGetLawExcerpt,
   handleGetLawMetadata,
@@ -13,8 +12,6 @@ import {
   handleSearchLaws,
 } from "../tools/handlers.js";
 import {
-  compareReformInputSchema,
-  compareReformOutputSchema,
   getArticleInputSchema,
   getArticleOutputSchema,
   getLawExcerptInputSchema,
@@ -52,7 +49,6 @@ This server provides read-only access to Spanish legislation through the followi
 - get_article: Get one article or bounded section.
 - get_law_excerpt: Search for excerpts within a known law.
 - list_reforms: View reform history for a law.
-- compare_reform: Compare a law between two revisions when historical source text is available.
 
 All tools return structured responses with source citations. Always cite the source when presenting legal information.
 `.trim();
@@ -133,19 +129,6 @@ export function createMcpServer(db: LawDatabase): McpServer {
       _meta: toolsOnlyMeta,
     },
     async (args) => toToolResult(await withToolTimeout(handleListReforms(db, args))),
-  );
-
-  server.registerTool(
-    "compare_reform",
-    {
-      description:
-        "Use this when the user asks to compare a law or article between two known revisions.",
-      inputSchema: compareReformInputSchema,
-      outputSchema: compareReformOutputSchema,
-      annotations: toolAnnotations,
-      _meta: toolsOnlyMeta,
-    },
-    async (args) => toToolResult(await withToolTimeout(handleCompareReform(db, args))),
   );
 
   return server;

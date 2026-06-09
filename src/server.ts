@@ -395,10 +395,6 @@ function getToolLimit(toolName: string): { scope: string; limit: number } | null
     return { scope: "get_law_excerpt", limit: config.excerptRateLimitPerMinute };
   }
 
-  if (toolName === "compare_reform") {
-    return { scope: "compare_reform", limit: config.compareRateLimitPerMinute };
-  }
-
   return null;
 }
 

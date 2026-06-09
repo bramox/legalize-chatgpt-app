@@ -22,7 +22,6 @@ Spanish Law Research helps users find relevant Spanish laws, inspect concrete ar
 - Explain source excerpts in plain language without hiding original legal text
 - Identify related laws or articles when users describe situations
 - Show reform history, affected articles, dates, and source links
-- Compare two versions of a law or article when version data is available
 
 ## Supported Jurisdictions
 
@@ -60,7 +59,6 @@ The app provides the following MCP tools:
 3. **get_article** - Retrieve one article or bounded section by law identifier and article number
 4. **get_law_excerpt** - Get a bounded excerpt about a topic inside a known law
 5. **list_reforms** - List reform history for a law
-6. **compare_reform** - Compare a law or article between two known revisions
 
 ## Access and Privacy
 
@@ -99,6 +97,7 @@ This app attributes Legalize, legalize-es, BOE, file paths, source commits, and 
 - Keyword search only (semantic search not supported)
 - Spanish legislation only
 - Read-only access
+- Historical text comparison is not supported in v1
 - No semantic search
 - No user accounts or OAuth
 - No write actions or government submissions

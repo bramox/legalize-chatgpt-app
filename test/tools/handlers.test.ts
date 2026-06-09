@@ -6,7 +6,6 @@ import {
   handleGetArticle,
   handleGetLawExcerpt,
   handleListReforms,
-  handleCompareReform,
 } from "../../src/tools/handlers.js";
 import { createTempDir, cleanupTempDir, buildMinimalTestDatabase } from "../helpers/setup.js";
 
@@ -214,47 +213,6 @@ describe("Tool Handlers", () => {
       assert.strictEqual(result.ok, false);
       if (!result.ok) {
         assert.strictEqual(result.error.code, "invalid_input");
-      }
-    });
-  });
-
-  describe("handleCompareReform", () => {
-    it("should reject invalid revisions", async () => {
-      const result = await handleCompareReform(db, {
-        identifier: "BOE-A-1889-4763",
-        base_revision: "abc", // Too short
-        target_revision: "def",
-      });
-
-      assert.strictEqual(result.ok, false);
-      if (!result.ok) {
-        assert.strictEqual(result.error.code, "invalid_input");
-      }
-    });
-
-    it("should return source_unavailable for non-indexed revisions", async () => {
-      const result = await handleCompareReform(db, {
-        identifier: "BOE-A-1889-4763",
-        base_revision: "abc123456789",
-        target_revision: "def123456789",
-      });
-
-      assert.strictEqual(result.ok, false);
-      if (!result.ok) {
-        assert.strictEqual(result.error.code, "source_unavailable");
-      }
-    });
-
-    it("should return bounded comparison when revisions match current", async () => {
-      const result = await handleCompareReform(db, {
-        identifier: "BOE-A-1889-4763",
-        base_revision: "test-revision-sha",
-        target_revision: "test-revision-sha",
-      });
-
-      assert.strictEqual(result.ok, false);
-      if (!result.ok) {
-        assert.strictEqual(result.error.code, "source_unavailable");
       }
     });
   });

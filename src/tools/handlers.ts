@@ -3,14 +3,11 @@ import type { Citation, LawRecord, ToolErrorCode } from "../types/index.js";
 import type { ZodType } from "zod/v4";
 import { config } from "../config.js";
 import {
-  compareReformInputSchema,
   getArticleInputSchema,
   getLawExcerptInputSchema,
   getLawMetadataInputSchema,
   listReformsInputSchema,
   searchLawsInputSchema,
-  type CompareReformInput,
-  type CompareReformResponse,
   type GetArticleInput,
   type GetArticleResponse,
   type GetLawExcerptInput,
@@ -180,39 +177,6 @@ export async function handleListReforms(
     reforms,
     next_cursor: null,
   };
-}
-
-export async function handleCompareReform(
-  db: LawDatabase,
-  input: unknown,
-): Promise<CompareReformResponse> {
-  const parsed = parseInput(compareReformInputSchema, input);
-  if (!parsed.ok) return parsed;
-
-  const args: CompareReformInput = parsed.value;
-  const law = getLawForRequest(db, args.identifier, args.jurisdiction);
-  if (!law.ok) return law;
-
-  if (args.article_number) {
-    const article = db.getArticle(args.identifier, args.article_number, args.max_chars);
-    if (!article) {
-      return toolError("unknown_article", "The specified article was not found in the law.", {
-        identifier: args.identifier,
-        article_number: args.article_number,
-      });
-    }
-  }
-
-  return toolError(
-    "source_unavailable",
-    "Historical source text for the requested revisions is not available in the indexed corpus.",
-    {
-      identifier: args.identifier,
-      base_revision: args.base_revision,
-      target_revision: args.target_revision,
-      current_indexed_revision: law.value.source_revision,
-    },
-  );
 }
 
 export function citationFromLaw(law: LawRecord): Citation {

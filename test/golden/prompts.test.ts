@@ -107,25 +107,6 @@ describe("Golden Prompt Routing", () => {
       }
     });
   });
-
-  describe("Comparison Prompts", () => {
-    it("should route comparison requests with bounded v1 behavior", async () => {
-      const { handleCompareReform } = await import("../../src/tools/handlers.js");
-      
-      const result = await handleCompareReform(db, {
-        identifier: "BOE-A-1889-4763",
-        base_revision: "abc123456789",
-        target_revision: "def123456789",
-      });
-      
-      // V1: Should return source_unavailable for non-indexed revisions
-      assert.strictEqual(result.ok, false);
-      if (!result.ok) {
-        assert.strictEqual(result.error.code, "source_unavailable");
-      }
-    });
-  });
-
   describe("Ambiguous/Invalid Prompts", () => {
     it("should handle unsupported jurisdiction with error", async () => {
       const { handleSearchLaws } = await import("../../src/tools/handlers.js");

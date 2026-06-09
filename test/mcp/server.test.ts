@@ -20,16 +20,15 @@ describe("MCP Server", () => {
     await cleanupTempDir(tempDir);
   });
 
-  it("registers six read-only tools without UI resources", async () => {
+  it("registers five read-only tools without UI resources", async () => {
     const { client, server } = await connectTestClient();
 
     try {
       const result = await client.listTools();
-      assert.strictEqual(result.tools.length, 6);
+      assert.strictEqual(result.tools.length, 5);
 
       const names = result.tools.map((tool) => tool.name).sort();
       assert.deepStrictEqual(names, [
-        "compare_reform",
         "get_article",
         "get_law_excerpt",
         "get_law_metadata",
@@ -81,11 +80,10 @@ describe("MCP Server", () => {
 
     try {
       const result = await client.callTool({
-        name: "compare_reform",
+        name: "get_article",
         arguments: {
           identifier: "BOE-A-1889-4763",
-          base_revision: "abc123456789",
-          target_revision: "def123456789",
+          article_number: "999999",
         },
       });
 
@@ -95,7 +93,7 @@ describe("MCP Server", () => {
       assert.strictEqual(structuredContent.ok, false);
       assert.strictEqual(
         (structuredContent.error as Record<string, unknown>).code,
-        "source_unavailable",
+        "unknown_article",
       );
     } finally {
       await client.close();

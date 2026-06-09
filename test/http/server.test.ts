@@ -100,13 +100,13 @@ describe("HTTP Server", () => {
       assert.ok(data.error);
     });
 
-    it("enforces the compare tool per-IP rate limit", async () => {
-      for (let index = 0; index < config.compareRateLimitPerMinute; index += 1) {
-        const response = await callCompareWithoutInitialization(index + 1);
+    it("enforces the excerpt tool per-IP rate limit", async () => {
+      for (let index = 0; index < config.excerptRateLimitPerMinute; index += 1) {
+        const response = await callExcerptWithoutInitialization(index + 1);
         assert.notStrictEqual(response.status, 429);
       }
 
-      const limited = await callCompareWithoutInitialization(99);
+      const limited = await callExcerptWithoutInitialization(99);
       assert.strictEqual(limited.status, 429);
 
       const data = (await limited.json()) as {
@@ -117,8 +117,8 @@ describe("HTTP Server", () => {
           };
         };
       };
-      assert.strictEqual(data.error?.data?.scope, "compare_reform");
-      assert.strictEqual(data.error?.data?.limit, config.compareRateLimitPerMinute);
+      assert.strictEqual(data.error?.data?.scope, "get_law_excerpt");
+      assert.strictEqual(data.error?.data?.limit, config.excerptRateLimitPerMinute);
     });
   });
 
@@ -161,7 +161,7 @@ describe("HTTP Server", () => {
     });
   });
 
-  async function callCompareWithoutInitialization(id: number): Promise<Response> {
+  async function callExcerptWithoutInitialization(id: number): Promise<Response> {
     return await fetch(`${baseUrl}/mcp`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -170,11 +170,10 @@ describe("HTTP Server", () => {
         id,
         method: "tools/call",
         params: {
-          name: "compare_reform",
+          name: "get_law_excerpt",
           arguments: {
             identifier: "BOE-A-1889-4763",
-            base_revision: "abc123456789",
-            target_revision: "def123456789",
+            query: "fuentes",
           },
         },
       }),

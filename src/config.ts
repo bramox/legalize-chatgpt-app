@@ -52,7 +52,6 @@ export const config = {
   globalRateLimitPerMinute: 60,
   searchRateLimitPerMinute: 20,
   excerptRateLimitPerMinute: 20,
-  compareRateLimitPerMinute: 10,
   cacheMaxEntries: 256,
   cacheTtlMs: 5 * 60 * 1000,
   sqliteQueryTimeoutMs: 10 * 1000,

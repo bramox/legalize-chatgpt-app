@@ -162,19 +162,6 @@ export interface ReformListItem {
 }
 
 /**
- * Reform comparison result.
- */
-export interface ReformComparison {
-  base_revision: string;
-  target_revision: string;
-  article_number: string;
-  before_text: string;
-  after_text: string;
-  diff_summary: string;
-  truncated: boolean;
-}
-
-/**
  * Parsed YAML frontmatter from a law file.
  */
 export interface LawFrontmatter {
