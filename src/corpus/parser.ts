@@ -108,14 +108,14 @@ export function chunkMarkdown(
 
   // Article pattern: Artículo/Articulo followed by number, ordinal, cardinal, or "único", with optional Latin suffixes
   // Matches: "Artículo 1", "Articulo 1", "Artículo 1º", "Artículo 2ª", "Artículo único", "Artículo 10 bis", "Artículo 38 ter"
-  // Suffixes: bis, ter, quater, quinquies, sexies, septies, octies, nonies
-  const articlePattern = /^Art[íi]culo\s+(\d+[ººªª]?\s*(?:bis|ter|quater|quinquies|sexies|septies|octies|nonies)?|(?:[uú]nico))/i;
+  // Suffixes: bis, ter, quater, quinquies, sexies, septies, octies, nonies, decies
+  const articlePattern = /^Art[íi]culo\s+(\d+[ººªª]?\s*(?:bis|ter|quater|quinquies|sexies|septies|octies|nonies|decies)?|(?:[uú]nico))/i;
 
   for (const line of lines) {
     const trimmedLine = line.trim();
     
     // Check for article pattern first (with or without heading markers)
-    const articleWithHeadingMatch = trimmedLine.match(/^#{1,6}\s+Art[íi]culo\s+(\d+[ººªª]?\s*(?:bis|ter|quater|quinquies|sexies|septies|octies|nonies)?|(?:[uú]nico))/i);
+    const articleWithHeadingMatch = trimmedLine.match(/^#{1,6}\s+Art[íi]culo\s+(\d+[ººªª]?\s*(?:bis|ter|quater|quinquies|sexies|septies|octies|nonies|decies)?|(?:[uú]nico))/i);
     const articleWithoutHeadingMatch = trimmedLine.match(articlePattern);
     
     const headingMatch = !articleWithHeadingMatch && !articleWithoutHeadingMatch 

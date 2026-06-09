@@ -11,6 +11,9 @@ import {
   chunkMarkdown,
   frontmatterToLawRecord,
 } from "../../src/corpus/parser.js";
+import {
+  recoverCanonicalArticleNumber,
+} from "../../src/lib/article-labels.js";
 import { createTempDir, cleanupTempDir } from "../helpers/setup.js";
 
 describe("store/database", () => {
@@ -483,6 +486,34 @@ Cotización. La cotización en este régimen especial se realizará de acuerdo c
         assert.ok(ley2007Result, "Results should include Ley 20/2007 (BOE-A-2007-13409)");
       });
 
+      it("AC1-exact: search_laws should return BOE-A-2007-13409 for exact reported query", () => {
+        const exactQuery = "cuota reducida trabajadores autónomos segundo año rendimientos económicos netos inferiores salario mínimo interprofesional";
+        const results = db.searchLaws(exactQuery, "es", undefined, undefined, undefined, undefined, 10);
+
+        assert.ok(results.length > 0, "Exact reported query should return at least one result");
+        const ley2007Result = results.find(r => r.citation.identifier === "BOE-A-2007-13409");
+        assert.ok(ley2007Result, "Exact reported query should return Ley 20/2007 (BOE-A-2007-13409)");
+      });
+
+      it("AC1-article-matches: search_laws should include article_matches with canonical '38 ter' for reported query", () => {
+        const exactQuery = "cuota reducida trabajadores autónomos segundo año rendimientos económicos netos inferiores salario mínimo interprofesional";
+        const results = db.searchLaws(exactQuery, "es", undefined, undefined, undefined, undefined, 10);
+
+        assert.ok(results.length > 0, "Exact reported query should return at least one result");
+        const ley2007Result = results.find(r => r.citation.identifier === "BOE-A-2007-13409");
+        assert.ok(ley2007Result, "Exact reported query should return Ley 20/2007 (BOE-A-2007-13409)");
+        assert.ok(ley2007Result.article_matches, "Result should include article_matches");
+        assert.ok(Array.isArray(ley2007Result.article_matches), "article_matches should be an array");
+        assert.ok(ley2007Result.article_matches.length > 0, "article_matches should have at least one entry");
+
+        const article38TerMatch = ley2007Result.article_matches.find(m => m.article_number === "38 ter");
+        assert.ok(article38TerMatch, "article_matches should include canonical '38 ter'");
+        assert.strictEqual(article38TerMatch.article_number, "38 ter");
+        assert.ok(Array.isArray(article38TerMatch.heading_path));
+        assert.ok(typeof article38TerMatch.snippet === "string");
+        assert.ok(article38TerMatch.snippet.length > 0);
+      });
+
       it("AC2: search_laws should find same law family for alternative reduced contribution query", () => {
         const query = "tarifa plana cuota reducida trabajadores autónomos segundo periodo rendimientos económicos netos salario mínimo interprofesional";
         const results = db.searchLaws(query, "es", undefined, undefined, undefined, undefined, 10);
@@ -568,6 +599,65 @@ Los trabajadores autónomos podrán acogerse a la tarifa plana durante el primer
           uniqueIdentifiers.size,
           `search_laws should return unique law identifiers. Found duplicates: ${identifiers}`
         );
+      });
+
+      it("should not recover '38 ter' from a normal Article '38' without trailing space (negative regression)", () => {
+        // Add a fixture with both Article 38 (normal) and Article 38 ter (suffix)
+        const mixedContent = `---
+identifier: BOE-A-TEST-MIXED-001
+title: Ley de prueba para artículos mixtos
+country: es
+rank: ley
+publication_date: 2025-01-01
+last_updated: 2025-01-01
+status: in_force
+source: BOE
+---
+# TÍTULO I
+
+### Artículo 38
+
+Texto del artículo 38 normal (sin sufijo).
+
+### Artículo 38 ter
+
+Texto del artículo 38 ter con sufijo.`;
+        const mixedFrontmatter = parseFrontmatter(mixedContent, "test.md");
+        const mixedRecord = frontmatterToLawRecord(
+          mixedFrontmatter,
+          "es/BOE-A-TEST-MIXED-001.md",
+          "abc123",
+          "es",
+        );
+        db.upsertLaw(mixedRecord);
+
+        const mixedBody = extractMarkdownBody(mixedContent);
+        const mixedChunks = chunkMarkdown(
+          mixedBody,
+          "BOE-A-TEST-MIXED-001",
+          "es",
+          "abc123",
+          "es/BOE-A-TEST-MIXED-001.md",
+        );
+        db.insertArticleChunks(mixedChunks);
+
+        // Request Article "38 ter" - should return the actual Article 38 ter
+        const articleTer = db.getArticle("BOE-A-TEST-MIXED-001", "38 ter");
+        assert.ok(articleTer, "Should find Article 38 ter");
+        assert.strictEqual(articleTer?.article_number, "38 ter");
+        assert.ok(articleTer?.text.includes("Texto del artículo 38 ter"));
+
+        // Request Article "38" - should return the normal Article 38, NOT 38 ter
+        const articleNormal = db.getArticle("BOE-A-TEST-MIXED-001", "38");
+        assert.ok(articleNormal, "Should find Article 38");
+        assert.strictEqual(articleNormal?.article_number, "38");
+        assert.ok(articleNormal?.text.includes("Texto del artículo 38 normal"));
+
+        // Negative regression: requesting "38 ter" should NOT match stored "38" (without trailing space)
+        // The safe fallback requires trailing space as a malformed indicator
+        // This test verifies that recoverCanonicalArticleNumber("38", "38 ter") returns null
+        const recoveryResult = recoverCanonicalArticleNumber("38", "38 ter");
+        assert.strictEqual(recoveryResult, null, "Should not recover '38 ter' from plain '38' without trailing space");
       });
 
       it("should return unique law identifiers for alternative long Spanish query (deduplication regression test)", () => {

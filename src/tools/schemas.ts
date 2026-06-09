@@ -2,6 +2,7 @@ import * as z from "zod/v4";
 import { config } from "../config.js";
 import type {
   Article,
+  ArticleMatch,
   Citation,
   Excerpt,
   Jurisdiction,
@@ -149,12 +150,23 @@ export const toolErrorSchema = z
   })
   .strict();
 
+const articleMatchSchema = z
+  .object({
+    article_number: z.string(),
+    heading_path: z.array(z.string()),
+    snippet: z.string(),
+    score: z.number().optional(),
+    matched_fields: z.array(z.string()).optional(),
+  })
+  .strict();
+
 const searchResultSchema = z
   .object({
     citation: sharedCitationSchema,
     snippet: z.string(),
     score: z.number(),
     matched_fields: z.array(z.string()),
+    article_matches: z.array(articleMatchSchema).optional(),
   })
   .strict();
 

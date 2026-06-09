@@ -51,6 +51,69 @@ describe("Golden Prompt Routing", () => {
       }
     });
 
+    it("should route Russian natural-language question about autónomo contribution via search_laws first then get_article", async () => {
+      const { handleSearchLaws, handleGetArticle } = await import("../../src/tools/handlers.js");
+
+      const searchResult = await handleSearchLaws(db, {
+        query: "cuota reducida trabajadores autónomos segundo año",
+        jurisdiction: "es",
+        limit: 10,
+      });
+
+      assert.strictEqual(searchResult.ok, true);
+      if (searchResult.ok) {
+        const ley2007Result = searchResult.results.find(r => r.citation.identifier === "BOE-A-2007-13409");
+        assert.ok(ley2007Result, "Search should find Ley 20/2007");
+
+        assert.ok(ley2007Result.article_matches, "Result should include article_matches");
+        assert.ok(ley2007Result.article_matches.length > 0, "article_matches should have entries");
+
+        const firstMatch = ley2007Result.article_matches[0];
+        const articleResult = await handleGetArticle(db, {
+          identifier: ley2007Result.citation.identifier,
+          article_number: firstMatch.article_number,
+        });
+
+        assert.strictEqual(articleResult.ok, true);
+        if (articleResult.ok) {
+          assert.ok(articleResult.article);
+          assert.strictEqual(articleResult.article.article_number, firstMatch.article_number);
+        }
+      }
+    });
+
+    it("should use article_matches for search-to-article routing", async () => {
+      const { handleSearchLaws, handleGetArticle } = await import("../../src/tools/handlers.js");
+
+      const searchResult = await handleSearchLaws(db, {
+        query: "cuota reducida trabajadores autónomos segundo año",
+        jurisdiction: "es",
+        limit: 10,
+      });
+
+      assert.strictEqual(searchResult.ok, true);
+      if (searchResult.ok) {
+        const ley2007Result = searchResult.results.find(r => r.citation.identifier === "BOE-A-2007-13409");
+        assert.ok(ley2007Result, "Search should find Ley 20/2007");
+
+        // Demonstrate using citation.identifier and article_matches[0].article_number for get_article
+        assert.ok(ley2007Result.article_matches, "Result should include article_matches");
+        assert.ok(ley2007Result.article_matches.length > 0, "article_matches should have entries");
+
+        const firstMatch = ley2007Result.article_matches[0];
+        const articleResult = await handleGetArticle(db, {
+          identifier: ley2007Result.citation.identifier,
+          article_number: firstMatch.article_number,
+        });
+
+        assert.strictEqual(articleResult.ok, true);
+        if (articleResult.ok) {
+          assert.ok(articleResult.article);
+          assert.strictEqual(articleResult.article.article_number, firstMatch.article_number);
+        }
+      }
+    });
+
     it("should route alternative Spanish legal query about reduced contribution", async () => {
       const { handleSearchLaws } = await import("../../src/tools/handlers.js");
 

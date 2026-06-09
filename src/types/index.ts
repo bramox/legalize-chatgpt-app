@@ -107,6 +107,17 @@ export type ToolErrorCode =
   | "limit_exceeded";
 
 /**
+ * Article match hint for search-to-article routing.
+ */
+export interface ArticleMatch {
+  article_number: string;
+  heading_path: string[];
+  snippet: string;
+  score?: number;
+  matched_fields?: string[];
+}
+
+/**
  * Search result with citation and snippet.
  */
 export interface SearchResult {
@@ -114,6 +125,7 @@ export interface SearchResult {
   snippet: string;
   score: number;
   matched_fields: string[];
+  article_matches?: ArticleMatch[];
 }
 
 /**

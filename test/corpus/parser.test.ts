@@ -8,6 +8,10 @@ import {
   validateChunk,
   validateLawRecord,
 } from "../../src/corpus/parser.js";
+import {
+  canonicalizeArticleLabel,
+  recoverCanonicalArticleNumber,
+} from "../../src/lib/article-labels.js";
 
 describe("corpus/parser", () => {
   describe("parseFrontmatter", () => {
@@ -276,6 +280,25 @@ Texto del artículo quater.`;
       assert.ok(chunks[0].text.includes("Texto del artículo quater"));
     });
 
+    it("should handle artículo with decies", () => {
+      const markdown = `# TÍTULO I
+
+Artículo 5 decies
+
+Texto del artículo decies.`;
+      const chunks = chunkMarkdown(
+        markdown,
+        "TEST-004d",
+        "es",
+        "abc123",
+        "es/TEST-004d.md",
+      );
+
+      assert.strictEqual(chunks.length, 1);
+      assert.strictEqual(chunks[0].article_number, "5 decies");
+      assert.ok(chunks[0].text.includes("Texto del artículo decies"));
+    });
+
     it("should handle article with heading marker", () => {
       const markdown = `# TÍTULO I
 
@@ -528,6 +551,132 @@ Content`;
       record.last_updated = "invalid-date";
 
       assert.throws(() => validateLawRecord(record), /Invalid last_updated format/);
+    });
+  });
+
+  describe("article label canonicalization", () => {
+    it("should canonicalize '38 ter' to '38 ter'", () => {
+      const result = canonicalizeArticleLabel("38 ter");
+      assert.strictEqual(result, "38 ter");
+    });
+
+    it("should canonicalize 'Artículo 38 ter' to '38 ter'", () => {
+      const result = canonicalizeArticleLabel("Artículo 38 ter");
+      assert.strictEqual(result, "38 ter");
+    });
+
+    it("should canonicalize 'artículo 38 ter' to '38 ter'", () => {
+      const result = canonicalizeArticleLabel("artículo 38 ter");
+      assert.strictEqual(result, "38 ter");
+    });
+
+    it("should canonicalize 'art. 38 ter' to '38 ter'", () => {
+      const result = canonicalizeArticleLabel("art. 38 ter");
+      assert.strictEqual(result, "38 ter");
+    });
+
+    it("should canonicalize '38ter' to '38 ter'", () => {
+      const result = canonicalizeArticleLabel("38ter");
+      assert.strictEqual(result, "38 ter");
+    });
+
+    it("should canonicalize '10 bis' to '10 bis'", () => {
+      const result = canonicalizeArticleLabel("10 bis");
+      assert.strictEqual(result, "10 bis");
+    });
+
+    it("should canonicalize 'Artículo 10 bis' to '10 bis'", () => {
+      const result = canonicalizeArticleLabel("Artículo 10 bis");
+      assert.strictEqual(result, "10 bis");
+    });
+
+    it("should canonicalize '10bis' to '10 bis'", () => {
+      const result = canonicalizeArticleLabel("10bis");
+      assert.strictEqual(result, "10 bis");
+    });
+
+    it("should handle 'único' articles", () => {
+      const result = canonicalizeArticleLabel("Artículo único");
+      assert.strictEqual(result, "único");
+    });
+
+    it("should handle 'Articulo 1' (without accent)", () => {
+      const result = canonicalizeArticleLabel("Articulo 1");
+      assert.strictEqual(result, "1");
+    });
+
+    it("should handle '1º' (ordinal)", () => {
+      const result = canonicalizeArticleLabel("1º");
+      assert.strictEqual(result, "1º");
+    });
+
+    it("should handle '2ª' (ordinal feminine)", () => {
+      const result = canonicalizeArticleLabel("2ª");
+      assert.strictEqual(result, "2ª");
+    });
+
+    it("should handle 'Artículo 1º' with ordinal", () => {
+      const result = canonicalizeArticleLabel("Artículo 1º");
+      assert.strictEqual(result, "1º");
+    });
+
+    it("should handle whitespace variations", () => {
+      const result1 = canonicalizeArticleLabel("  38  ter  ");
+      assert.strictEqual(result1, "38 ter");
+    });
+
+    it("should return null for invalid labels", () => {
+      const result = canonicalizeArticleLabel("invalid");
+      assert.strictEqual(result, null);
+    });
+
+    it("should return null for empty string", () => {
+      const result = canonicalizeArticleLabel("");
+      assert.strictEqual(result, null);
+    });
+
+    it("should handle 'decies' suffix", () => {
+      const result = canonicalizeArticleLabel("Artículo 5 decies");
+      assert.strictEqual(result, "5 decies");
+    });
+
+    it("should handle '5decies' (compact)", () => {
+      const result = canonicalizeArticleLabel("5decies");
+      assert.strictEqual(result, "5 decies");
+    });
+  });
+
+  describe("article label recovery", () => {
+    it("should recover canonical '38 ter' from legacy '38 '", () => {
+      const result = recoverCanonicalArticleNumber("38 ", "38 ter");
+      assert.strictEqual(result, "38 ter");
+    });
+
+    it("should return null when stored value is already canonical", () => {
+      const result = recoverCanonicalArticleNumber("38 ter", "38 ter");
+      assert.strictEqual(result, "38 ter");
+    });
+
+    it("should return null for mismatched values", () => {
+      const result = recoverCanonicalArticleNumber("37", "38 ter");
+      assert.strictEqual(result, null);
+    });
+
+    it("should return null for empty inputs", () => {
+      const result = recoverCanonicalArticleNumber("", "38 ter");
+      assert.strictEqual(result, null);
+    });
+
+    it("should not recover across different base numbers", () => {
+      const result = recoverCanonicalArticleNumber("37 ", "38 ter");
+      assert.strictEqual(result, null);
+    });
+
+    it("should not recover '38 ter' from plain '38' without trailing space (negative regression)", () => {
+      // This is the key safety fix: a plain "38" (without trailing space) should NOT be
+      // recovered as "38 ter" because it could be a legitimate Article 38
+      const result = recoverCanonicalArticleNumber("38", "38 ter");
+      assert.strictEqual(result, null, "Plain '38' without trailing space should not recover to '38 ter'");
     });
   });
 });

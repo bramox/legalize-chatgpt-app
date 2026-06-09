@@ -182,6 +182,78 @@ describe("Tool Handlers", () => {
         }
       });
 
+      it("AC3-variant-1: get_article should succeed with 'Artículo 38 ter' (capitalized with article label)", async () => {
+        const result = await handleGetArticle(db, {
+          identifier: "BOE-A-2007-13409",
+          article_number: "Artículo 38 ter",
+        });
+
+        assert.strictEqual(result.ok, true);
+        if (result.ok) {
+          assert.strictEqual(result.citation.identifier, "BOE-A-2007-13409");
+          assert.strictEqual(result.article.article_number, "38 ter");
+          assert.ok(result.article.text.length > 0);
+        }
+      });
+
+      it("AC3-variant-2: get_article should succeed with 'artículo 38 ter' (lowercase with article label)", async () => {
+        const result = await handleGetArticle(db, {
+          identifier: "BOE-A-2007-13409",
+          article_number: "artículo 38 ter",
+        });
+
+        assert.strictEqual(result.ok, true);
+        if (result.ok) {
+          assert.strictEqual(result.citation.identifier, "BOE-A-2007-13409");
+          assert.strictEqual(result.article.article_number, "38 ter");
+          assert.ok(result.article.text.length > 0);
+        }
+      });
+
+      it("AC3-variant-3: get_article should succeed with 'art. 38 ter' (abbreviation)", async () => {
+        const result = await handleGetArticle(db, {
+          identifier: "BOE-A-2007-13409",
+          article_number: "art. 38 ter",
+        });
+
+        assert.strictEqual(result.ok, true);
+        if (result.ok) {
+          assert.strictEqual(result.citation.identifier, "BOE-A-2007-13409");
+          assert.strictEqual(result.article.article_number, "38 ter");
+          assert.ok(result.article.text.length > 0);
+        }
+      });
+
+      it("AC3-variant-4: get_article should succeed with '38ter' (no space)", async () => {
+        const result = await handleGetArticle(db, {
+          identifier: "BOE-A-2007-13409",
+          article_number: "38ter",
+        });
+
+        assert.strictEqual(result.ok, true);
+        if (result.ok) {
+          assert.strictEqual(result.citation.identifier, "BOE-A-2007-13409");
+          assert.strictEqual(result.article.article_number, "38 ter");
+          assert.ok(result.article.text.length > 0);
+        }
+      });
+
+      it("AC3-variant-5: get_article should handle legacy malformed '38 ' (trailing space)", async () => {
+        const result = await handleGetArticle(db, {
+          identifier: "BOE-A-2007-13409",
+          article_number: "38 ",
+        });
+
+        // Legacy malformed handling: "38 " (with trailing space) should recover to canonical "38 ter"
+        // This is now deterministic with the safe fallback that requires trailing space as a malformed indicator
+        assert.strictEqual(result.ok, true);
+        if (result.ok) {
+          assert.strictEqual(result.citation.identifier, "BOE-A-2007-13409");
+          assert.strictEqual(result.article.article_number, "38 ter");
+          assert.ok(result.article.text.length > 0);
+        }
+      });
+
       it("AC4: get_article with non-stable identifier should return structured unknown_law error with candidates", async () => {
         const result = await handleGetArticle(db, {
           identifier: "Real Decreto Legislativo 8/2015",
@@ -192,7 +264,6 @@ describe("Tool Handlers", () => {
         if (!result.ok) {
           assert.strictEqual(result.error.code, "unknown_law");
           // Should include candidate law identifiers when matching law metadata exists
-          // This will fail until production code implements the feature
           assert.ok(result.error.details?.candidates, "Error should include candidate law identifiers");
         }
       });
@@ -207,7 +278,6 @@ describe("Tool Handlers", () => {
         if (!result.ok) {
           assert.strictEqual(result.error.code, "unknown_article");
           // Should include nearby article suggestions when available
-          // This will fail until production code implements the feature
           assert.ok(result.error.details?.suggestions, "Error should include article suggestions");
         }
       });

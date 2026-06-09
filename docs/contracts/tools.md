@@ -119,12 +119,23 @@ Output schema:
       "citation": "Shared Citation",
       "snippet": "Short matched excerpt.",
       "score": 12.34,
-      "matched_fields": ["title", "body"]
+      "matched_fields": ["title", "body"],
+      "article_matches": [
+        {
+          "article_number": "38 ter",
+          "heading_path": ["TÍTULO IV", "CAPÍTULO I"],
+          "snippet": "Cuota reducida para trabajadores autónomos...",
+          "score": 8.5,
+          "matched_fields": ["body"]
+        }
+      ]
     }
   ],
   "next_cursor": null
 }
 ```
+
+`article_matches` is an optional array of compact article-level routing hints. When present, each match includes `article_number` (canonical form), `heading_path`, a short `snippet`, and optional `score`/`matched_fields`. Use `citation.identifier` and `article_matches[0].article_number` to retrieve the full article text with `get_article`.
 
 ## get_law_metadata
 

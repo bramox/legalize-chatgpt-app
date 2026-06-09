@@ -10,8 +10,16 @@ import type {
   Article,
   Excerpt,
   ReformListItem,
+  ArticleMatch,
 } from "../types/index.js";
 import { config } from "../config.js";
+import {
+  canonicalizeArticleLabel,
+  getArticleBaseNumber,
+  hasSupportedArticleSuffix,
+  isMalformedBaseArticleLabel,
+  recoverCanonicalArticleNumber,
+} from "../lib/article-labels.js";
 
 /**
  * SQLite database store with FTS5 for full-text search.
@@ -379,12 +387,62 @@ export class LawDatabase {
       throw ftsError;
     }
 
-    return mergedRows.slice(0, limit).map((row) => ({
-      citation: this.rowToCitation(row),
-      snippet: row.snippet || "",
-      score: Math.abs(Number(row.score ?? 0)),
-      matched_fields: row.matched_field === "body" ? ["body"] : ["title"],
-    }));
+    // Fetch article matches for body-only results (not title-only matches)
+    const results = mergedRows.slice(0, limit).map((row) => {
+      const result: SearchResult = {
+        citation: this.rowToCitation(row),
+        snippet: row.snippet || "",
+        score: Math.abs(Number(row.score ?? 0)),
+        matched_fields: row.matched_field === "body" ? ["body"] : ["title"],
+      };
+
+      // Add article matches only for body matches (FTS results)
+      if (row.matched_field === "body") {
+        result.article_matches = this.fetchArticleMatches(row.identifier, ftsQuery, 3);
+      }
+
+      return result;
+    });
+
+    return results;
+  }
+
+  /**
+   * Fetch bounded article matches for a law using FTS.
+   * Returns compact matches with article_number, heading_path, snippet, and score.
+   */
+  private fetchArticleMatches(
+    lawIdentifier: string,
+    ftsQuery: string,
+    limit: number = 3,
+  ): ArticleMatch[] {
+    const stmt = this.db.prepare(`
+      SELECT
+        a.article_number,
+        a.heading_path,
+        snippet(articles_fts, 4, '<mark>', '</mark>', '...', 64) as snippet,
+        bm25(articles_fts) as score
+      FROM articles_fts
+      JOIN articles a ON a.id = articles_fts.rowid
+      WHERE articles_fts MATCH ? AND a.law_identifier = ?
+      ORDER BY score
+      LIMIT ?
+    `);
+
+    const rows = stmt.all(ftsQuery, lawIdentifier, limit) as any[];
+
+    return rows.map((row) => {
+      const canonical = canonicalizeArticleLabel(row.article_number);
+      const displayNumber = canonical || row.article_number;
+
+      return {
+        article_number: displayNumber,
+        heading_path: JSON.parse(row.heading_path),
+        snippet: row.snippet || "",
+        score: Math.abs(Number(row.score ?? 0)),
+        matched_fields: ["body"],
+      };
+    });
   }
 
   /**
@@ -403,28 +461,135 @@ export class LawDatabase {
 
   /**
    * Get article by law identifier and article number.
+   * Tries exact lookup first, then canonicalized variants.
    */
   getArticle(
     identifier: string,
     articleNumber: string,
     maxChars: number = config.defaultArticleChars,
   ): Article | null {
+    // Try exact match first
     const stmt = this.db.prepare(
       "SELECT * FROM articles WHERE law_identifier = ? AND article_number = ? LIMIT 1",
     );
-    const row = stmt.get(identifier, articleNumber) as any;
+    let row = stmt.get(identifier, articleNumber) as any;
 
-    if (!row) return null;
+    if (row) {
+      // Even if exact match succeeds, check if the stored value is malformed
+      // and can be recovered to a canonical form
+      const canonical = canonicalizeArticleLabel(articleNumber);
+      if (canonical && canonical !== articleNumber) {
+        const recovered = recoverCanonicalArticleNumber(row.article_number, canonical);
+        if (recovered) {
+          const text = row.text;
+          const truncated = text.length > maxChars;
 
-    const text = row.text;
-    const truncated = text.length > maxChars;
+          return {
+            article_number: recovered, // Return canonical article number
+            heading_path: JSON.parse(row.heading_path),
+            text: truncated ? text.slice(0, maxChars) : text,
+            truncated,
+          };
+        }
+      }
 
-    return {
-      article_number: row.article_number,
-      heading_path: JSON.parse(row.heading_path),
-      text: truncated ? text.slice(0, maxChars) : text,
-      truncated,
-    };
+      const text = row.text;
+      const truncated = text.length > maxChars;
+
+      return {
+        article_number: row.article_number,
+        heading_path: JSON.parse(row.heading_path),
+        text: truncated ? text.slice(0, maxChars) : text,
+        truncated,
+      };
+    }
+
+    // Try canonicalized article number
+    const canonical = canonicalizeArticleLabel(articleNumber);
+    if (canonical && canonical !== articleNumber) {
+      row = stmt.get(identifier, canonical) as any;
+
+      if (row) {
+        const text = row.text;
+        const truncated = text.length > maxChars;
+
+        return {
+          article_number: row.article_number,
+          heading_path: JSON.parse(row.heading_path),
+          text: truncated ? text.slice(0, maxChars) : text,
+          truncated,
+        };
+      }
+    }
+
+    // Try legacy malformed compatibility fallback
+    // Only for known suffix articles with legacy stored values like "38 "
+    if (canonical) {
+      const allArticlesStmt = this.db.prepare(
+        "SELECT article_number FROM articles WHERE law_identifier = ?",
+      );
+      const allRows = allArticlesStmt.all(identifier) as any[];
+
+      for (const existingRow of allRows) {
+        const recovered = recoverCanonicalArticleNumber(
+          existingRow.article_number,
+          canonical,
+        );
+        if (recovered) {
+          // Found a match via recovery, fetch the full article
+          row = stmt.get(identifier, existingRow.article_number) as any;
+          if (row) {
+            const text = row.text;
+            const truncated = text.length > maxChars;
+
+            return {
+              article_number: recovered, // Return canonical article number
+              heading_path: JSON.parse(row.heading_path),
+              text: truncated ? text.slice(0, maxChars) : text,
+              truncated,
+            };
+          }
+        }
+
+        if (isMalformedBaseArticleLabel(articleNumber)) {
+          const baseNumber = canonical;
+          const storedBaseNumber = getArticleBaseNumber(existingRow.article_number);
+
+          if (
+            baseNumber &&
+            hasSupportedArticleSuffix(existingRow.article_number) &&
+            storedBaseNumber === baseNumber
+          ) {
+            // Check if there are multiple suffix articles for this base number (ambiguous)
+            const suffixCount = allRows.filter(r => {
+              const candidateBaseNumber = getArticleBaseNumber(r.article_number);
+              return (
+                candidateBaseNumber === baseNumber &&
+                hasSupportedArticleSuffix(r.article_number)
+              );
+            }).length;
+
+            // Only recover if unambiguous (exactly one suffix article for this base number)
+            if (suffixCount === 1) {
+              row = stmt.get(identifier, existingRow.article_number) as any;
+              if (row) {
+                const text = row.text;
+                const truncated = text.length > maxChars;
+
+                return {
+                  article_number: existingRow.article_number, // Return the stored canonical article number
+                  heading_path: JSON.parse(row.heading_path),
+                  text: truncated ? text.slice(0, maxChars) : text,
+                  truncated,
+                };
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -631,6 +796,7 @@ export class LawDatabase {
   /**
    * Find candidate articles within a law by nearby article numbers or relevant text.
    * Returns bounded article suggestions for structured error responses.
+   * Always returns canonical article numbers for known suffix articles.
    */
   findArticleCandidates(
     lawIdentifier: string,
@@ -665,11 +831,17 @@ export class LawDatabase {
       ) as any[];
 
       if (nearbyRows.length > 0) {
-        return nearbyRows.map(row => ({
-          article_number: row.article_number,
-          heading_path: JSON.parse(row.heading_path),
-          snippet: row.text.slice(0, 200) + (row.text.length > 200 ? "..." : ""),
-        }));
+        return nearbyRows.map(row => {
+          // Canonicalize article number to avoid returning malformed values like "38 "
+          const canonical = canonicalizeArticleLabel(row.article_number);
+          const displayNumber = canonical || row.article_number;
+
+          return {
+            article_number: displayNumber,
+            heading_path: JSON.parse(row.heading_path),
+            snippet: row.text.slice(0, 200) + (row.text.length > 200 ? "..." : ""),
+          };
+        });
       }
     }
 

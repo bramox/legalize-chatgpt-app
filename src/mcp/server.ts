@@ -50,6 +50,11 @@ This server provides read-only access to Spanish legislation through the followi
 - get_law_excerpt: Search for excerpts within a known law.
 - list_reforms: View reform history for a law.
 
+Preferred flow for natural-language questions:
+1. Use search_laws by topic or phrase.
+2. Use the returned citation.identifier and article_matches[].article_number to call get_article.
+3. Cite source citations when answering.
+
 All tools return structured responses with source citations. Always cite the source when presenting legal information.
 `.trim();
 
@@ -71,7 +76,7 @@ export function createMcpServer(db: LawDatabase): McpServer {
     "search_laws",
     {
       description:
-        "Use this when the user asks to find Spanish laws by topic, phrase, identifier, rank, status, jurisdiction, or date range.",
+        "Find Spanish laws by topic or phrase. Returns citation.identifier and article_matches[].article_number for get_article calls. Use short source-oriented queries.",
       inputSchema: searchLawsInputSchema,
       outputSchema: searchLawsOutputSchema,
       annotations: toolAnnotations,
@@ -97,7 +102,7 @@ export function createMcpServer(db: LawDatabase): McpServer {
     "get_article",
     {
       description:
-        "Use this when the user asks for one article or bounded section by law identifier and article number. Stable identifiers are required (e.g., BOE-A-2007-13409). Natural-language law names should be resolved with search_laws first.",
+        "Get one article or bounded section. Use citation.identifier and article_matches[].article_number from search_laws. Stable identifiers are required (e.g., BOE-A-2007-13409).",
       inputSchema: getArticleInputSchema,
       outputSchema: getArticleOutputSchema,
       annotations: toolAnnotations,
