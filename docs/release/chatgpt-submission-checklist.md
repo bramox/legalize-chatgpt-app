@@ -38,7 +38,7 @@ This checklist must be completed before submitting Spanish Law Research to the C
 ### Privacy Policy
 
 - [ ] Privacy policy URL is correct and publicly accessible
-- [ ] URL points to: https://github.com/legalize-dev/legalize-chatgpt-app/blob/main/docs/privacy.md
+- [ ] URL points to: https://github.com/bramox/legalize-chatgpt-app/blob/main/docs/privacy.md
 - [ ] Privacy policy is current and accurate
 - [ ] Privacy policy describes read-only behavior
 - [ ] Data minimization and retention are documented
@@ -124,14 +124,14 @@ This checklist must be completed before submitting Spanish Law Research to the C
 - [ ] App description: [Provide approved description]
 - [ ] Category: Education/Reference
 - [ ] Languages: Spanish, English
-- [ ] Website: https://github.com/legalize-dev/legalize-chatgpt-app
+- [ ] Website: https://github.com/bramox/legalize-chatgpt-app
 
 ### Technical Details
 
 - [ ] MCP endpoint URL: [Provide actual production URL]
 - [ ] Authentication type: None (anonymous)
 - [ ] Data residency: Global
-- [ ] Privacy policy URL: https://github.com/legalize-dev/legalize-chatgpt-app/blob/main/docs/privacy.md
+- [ ] Privacy policy URL: https://github.com/bramox/legalize-chatgpt-app/blob/main/docs/privacy.md
 
 ### Content
 
@@ -143,7 +143,7 @@ This checklist must be completed before submitting Spanish Law Research to the C
 
 ### Review Materials
 
-- [ ] Code repository: https://github.com/legalize-dev/legalize-chatgpt-app
+- [ ] Code repository: https://github.com/bramox/legalize-chatgpt-app
 - [ ] Documentation links provided
 - [ ] Attribution policy linked
 - [ ] Security policy linked

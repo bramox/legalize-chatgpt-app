@@ -1,40 +1,35 @@
 # Privacy Policy
 
-## Scope
+Last updated: June 10, 2026
 
-Spanish Law Research is a read-only legal research app for Spanish legislation from `legalize-dev/legalize-es`.
+Spanish Law Research is a read-only ChatGPT app for researching Spanish legislation.
 
-## Data Processed
+## What We Collect
 
-The app processes:
+We do not require user accounts, subscriptions, payments, or registration.
 
-- User prompts sent by ChatGPT to select and call read-only tools.
-- Tool inputs such as search terms, law identifiers, article numbers, date filters, and jurisdiction filters.
-- Public legal source data from Legalize, `legalize-es`, BOE, and linked official sources.
+The app does not intentionally store personal data, user profiles, legal case files, payment information, or government account credentials.
 
-The app does not require user accounts and does not intentionally collect names, addresses, identity documents, case files, legal filings, payment data, or government account credentials.
+When ChatGPT calls the app, the app receives only the tool request needed to answer the user's legal research query, such as a search phrase, law identifier, article number, jurisdiction, or date filter.
 
-## Storage
+## How The App Uses Data
 
-The app stores generated corpus indexes, metadata, article chunks, reform records, operational logs, and security logs.
+The app uses tool requests only to search and retrieve public Spanish legal source material from its indexed corpus.
 
-Logs may contain request metadata, correlation IDs, tool names, validation errors, latency, and rate-limit events. Logs must not store raw prompts.
+The app does not sell user data, share user data for advertising, or use user data to provide paid services.
 
-## Retention
+## Public Legal Sources
 
-- Operational logs: 30 days.
-- Security logs: 90 days.
-- Generated corpus indexes: until replaced by a newer successful sync.
-- Railway volume backups: retention configured in Railway. Application-created local backup copies are not stored on the 5 GB persistent volume.
+The app returns information from public legal sources, including Legalize, `legalize-es`, BOE, and linked official source URLs.
 
-## Sharing
+## Logs
 
-The app does not sell user data. Public legal source data may be returned to ChatGPT as tool output. Operational logs remain on the self-hosted infrastructure and are not published in the open-source repository.
+The app may rely on basic hosting and security logs to keep the service running, detect abuse, and troubleshoot failures. These logs are not used for advertising or resale.
 
-## User Guidance
+## No Legal Advice
 
-Users should avoid entering sensitive personal facts. The app provides legal research support and does not provide legal advice.
+The app provides legal research support only. It is not a lawyer, law firm, court, public authority, or substitute for professional legal advice.
 
 ## Contact
 
-Security and privacy issues must be reported through GitHub private security advisories in the public repository.
+For privacy or security concerns, please use GitHub security advisories or open an issue in the public repository.

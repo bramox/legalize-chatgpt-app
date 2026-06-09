@@ -62,7 +62,7 @@ This application is released under the MIT License. The MIT License covers this 
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/legalize-dev/legalize-chatgpt-app.git
+git clone https://github.com/bramox/legalize-chatgpt-app.git
 cd legalize-chatgpt-app
 ```
 
@@ -141,6 +141,7 @@ See [Security Policy](./SECURITY.md) for security details.
 - [App Metadata](./docs/release/app-metadata.md) - ChatGPT app submission details
 - [Attribution Policy](./docs/attribution.md) - Source attribution requirements
 - [Privacy Policy](./docs/privacy.md) - Privacy and data handling
+- [Terms of Service](./docs/terms.md) - Terms for using the app
 
 ## Contributing
 

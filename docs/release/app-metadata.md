@@ -75,7 +75,11 @@ This app provides legal research support and does not provide legal advice. User
 
 ## Privacy Policy
 
-Privacy policy is available at: https://github.com/legalize-dev/legalize-chatgpt-app/blob/main/docs/privacy.md
+Privacy policy is available at: https://github.com/bramox/legalize-chatgpt-app/blob/main/docs/privacy.md
+
+## Terms of Service
+
+Terms of service are available at: https://github.com/bramox/legalize-chatgpt-app/blob/main/docs/terms.md
 
 ## Attribution
 
@@ -114,7 +118,7 @@ This app attributes Legalize, legalize-es, BOE, file paths, source commits, and 
 
 - **Publisher**: [To be filled by maintainer]
 - **Contact**: [To be filled by maintainer]
-- **Repository**: https://github.com/legalize-dev/legalize-chatgpt-app
+- **Repository**: https://github.com/bramox/legalize-chatgpt-app
 
 ## Open Source
 
