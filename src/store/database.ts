@@ -11,6 +11,7 @@ import type {
   Excerpt,
   ReformListItem,
   ArticleMatch,
+  NextTool,
 } from "../types/index.js";
 import { config } from "../config.js";
 import {
@@ -266,6 +267,7 @@ export class LawDatabase {
     limit: number = config.defaultSearchLimit,
   ): SearchResult[] {
     const ftsQuery = buildFtsQuery(query);
+    const normalizedStatus = normalizeStatusFilter(status);
     let ftsSql = `
       SELECT DISTINCT
         laws.*,
@@ -283,9 +285,9 @@ export class LawDatabase {
       ftsParams.push(jurisdiction);
     }
 
-    if (status) {
+    if (normalizedStatus) {
       ftsSql += " AND laws.status = ?";
-      ftsParams.push(status);
+      ftsParams.push(normalizedStatus);
     }
 
     if (rank) {
@@ -345,9 +347,9 @@ export class LawDatabase {
       titleParams.push(jurisdiction);
     }
 
-    if (status) {
+    if (normalizedStatus) {
       titleSql += " AND laws.status = ?";
-      titleParams.push(status);
+      titleParams.push(normalizedStatus);
     }
 
     if (rank) {
@@ -399,6 +401,19 @@ export class LawDatabase {
       // Add article matches only for body matches (FTS results)
       if (row.matched_field === "body") {
         result.article_matches = this.fetchArticleMatches(row.identifier, ftsQuery, 3);
+
+        // Add next_tool hint when article matches exist
+        if (result.article_matches && result.article_matches.length > 0) {
+          const nextTool: NextTool = {
+            name: "get_article",
+            arguments: {
+              identifier: result.citation.identifier,
+              article_number: result.article_matches[0].article_number,
+              jurisdiction: result.citation.jurisdiction,
+            },
+          };
+          result.next_tool = nextTool;
+        }
       }
 
       return result;
@@ -1002,6 +1017,21 @@ function normalizeText(text: string): string {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+}
+
+function normalizeStatusFilter(status: string | undefined): string | undefined {
+  if (!status) {
+    return undefined;
+  }
+
+  const normalized = normalizeText(status).trim().replace(/[\s-]+/g, "_");
+  const aliases: Record<string, string> = {
+    en_vigor: "in_force",
+    in_force: "in_force",
+    vigente: "in_force",
+  };
+
+  return aliases[normalized] ?? status;
 }
 
 /**

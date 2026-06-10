@@ -514,6 +514,91 @@ Cotización. La cotización en este régimen especial se realizará de acuerdo c
         assert.ok(article38TerMatch.snippet.length > 0);
       });
 
+      it("AC1-next-tool: search_laws should include next_tool for BOE-A-2007-13409 / 38 ter result", () => {
+        const exactQuery = "cuota reducida trabajadores autónomos segundo año rendimientos económicos netos inferiores salario mínimo interprofesional";
+        const results = db.searchLaws(exactQuery, "es", undefined, undefined, undefined, undefined, 10);
+
+        assert.ok(results.length > 0, "Exact reported query should return at least one result");
+        const ley2007Result = results.find(r => r.citation.identifier === "BOE-A-2007-13409");
+        assert.ok(ley2007Result, "Exact reported query should return Ley 20/2007 (BOE-A-2007-13409)");
+        assert.ok(ley2007Result.next_tool, "Result should include next_tool when article_matches exist");
+        assert.strictEqual(ley2007Result.next_tool?.name, "get_article");
+        assert.strictEqual(ley2007Result.next_tool?.arguments.identifier, "BOE-A-2007-13409");
+        assert.strictEqual(ley2007Result.next_tool?.arguments.article_number, "38 ter");
+        assert.strictEqual(ley2007Result.next_tool?.arguments.jurisdiction, "es");
+      });
+
+      it("should not include next_tool for title-only results without article matches", () => {
+        const titleOnlyContent = `---
+identifier: BOE-A-TEST-TITLE-ONLY-001
+title: Ley marcador exclusivo alphaomega
+country: es
+rank: ley
+publication_date: 2025-01-01
+last_updated: 2025-01-01
+status: in_force
+source: BOE
+---
+# TÍTULO I
+
+### Artículo 1
+
+Texto sin coincidencias relevantes.`;
+        const titleOnlyFrontmatter = parseFrontmatter(titleOnlyContent, "test.md");
+        const titleOnlyRecord = frontmatterToLawRecord(
+          titleOnlyFrontmatter,
+          "es/BOE-A-TEST-TITLE-ONLY-001.md",
+          "abc123",
+          "es",
+        );
+        db.upsertLaw(titleOnlyRecord);
+
+        const titleOnlyBody = extractMarkdownBody(titleOnlyContent);
+        const titleOnlyChunks = chunkMarkdown(
+          titleOnlyBody,
+          "BOE-A-TEST-TITLE-ONLY-001",
+          "es",
+          "abc123",
+          "es/BOE-A-TEST-TITLE-ONLY-001.md",
+        );
+        db.insertArticleChunks(titleOnlyChunks);
+
+        const results = db.searchLaws("Ley marcador exclusivo alphaomega", "es", undefined, undefined, undefined, undefined, 10);
+
+        assert.ok(results.length > 0, "Query should return at least one result");
+        const titleOnlyResult = results.find(r => r.citation.identifier === "BOE-A-TEST-TITLE-ONLY-001");
+        assert.ok(titleOnlyResult, "Query should return the title-only fixture");
+        assert.deepStrictEqual(titleOnlyResult.matched_fields, ["title"]);
+        assert.strictEqual(titleOnlyResult.article_matches, undefined);
+        assert.strictEqual(titleOnlyResult.next_tool, undefined, "Title-only results should not have next_tool");
+      });
+
+      it("should map Spanish status 'vigente' to in_force for Article 38 ter search", () => {
+        const query = "artículo 38 ter Ley 20/2007 tarifa reducida segundo año rendimientos netos salario mínimo interprofesional";
+        const results = db.searchLaws(query, "es", "vigente", undefined, undefined, undefined, 10);
+
+        const ley2007Result = results.find(r => r.citation.identifier === "BOE-A-2007-13409");
+        assert.ok(ley2007Result, "Spanish status alias should not filter out Ley 20/2007");
+        assert.strictEqual(ley2007Result.citation.status, "in_force");
+        assert.ok(
+          ley2007Result.article_matches?.some(match => match.article_number === "38 ter"),
+          "article_matches should include Article 38 ter",
+        );
+      });
+
+      it("should map Spanish status 'vigente' for reduced contribution search", () => {
+        const query = "cuota reducida trabajadores por cuenta propia artículo 38 ter";
+        const results = db.searchLaws(query, "es", "vigente", undefined, undefined, undefined, 10);
+
+        const ley2007Result = results.find(r => r.citation.identifier === "BOE-A-2007-13409");
+        assert.ok(ley2007Result, "Spanish status alias should not filter out Ley 20/2007");
+        assert.strictEqual(ley2007Result.citation.status, "in_force");
+        assert.ok(
+          ley2007Result.article_matches?.some(match => match.article_number === "38 ter"),
+          "article_matches should include Article 38 ter",
+        );
+      });
+
       it("AC2: search_laws should find same law family for alternative reduced contribution query", () => {
         const query = "tarifa plana cuota reducida trabajadores autónomos segundo periodo rendimientos económicos netos salario mínimo interprofesional";
         const results = db.searchLaws(query, "es", undefined, undefined, undefined, undefined, 10);

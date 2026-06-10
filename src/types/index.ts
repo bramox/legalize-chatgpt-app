@@ -118,6 +118,19 @@ export interface ArticleMatch {
 }
 
 /**
+ * Suggested next tool call for search-to-article routing.
+ * Scoped to get_article with identifier, article_number, and jurisdiction.
+ */
+export interface NextTool {
+  name: "get_article";
+  arguments: {
+    identifier: string;
+    article_number: string;
+    jurisdiction: string;
+  };
+}
+
+/**
  * Search result with citation and snippet.
  */
 export interface SearchResult {
@@ -126,6 +139,7 @@ export interface SearchResult {
   score: number;
   matched_fields: string[];
   article_matches?: ArticleMatch[];
+  next_tool?: NextTool;
 }
 
 /**

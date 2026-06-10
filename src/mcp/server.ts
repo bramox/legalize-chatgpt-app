@@ -52,8 +52,11 @@ This server provides read-only access to Spanish legislation through the followi
 
 Preferred flow for natural-language questions:
 1. Use search_laws by topic or phrase.
-2. Use the returned citation.identifier and article_matches[].article_number to call get_article.
-3. Cite source citations when answering.
+2. If a search result contains next_tool, call it directly to retrieve full article text before answering.
+3. Otherwise, use the returned citation.identifier and article_matches[].article_number to call get_article.
+4. Cite source citations when answering.
+
+Important: Do not answer legal questions from search_laws snippets alone. Always retrieve full article text with get_article (via next_tool if present) before providing cited legal answers. If no result is found, retry with a shorter Spanish source-oriented local-corpus query and avoid optional filters unless the user explicitly requested them.
 
 All tools return structured responses with source citations. Always cite the source when presenting legal information.
 `.trim();
@@ -76,7 +79,7 @@ export function createMcpServer(db: LawDatabase): McpServer {
     "search_laws",
     {
       description:
-        "Find Spanish laws by topic or phrase. Returns citation.identifier and article_matches[].article_number for get_article calls. Use short source-oriented queries.",
+        "Find Spanish laws by topic or phrase. Returns citation.identifier, article_matches[].article_number, and next_tool for get_article calls. Use short source-oriented queries. If a result contains next_tool, call it directly to retrieve full article text before answering.",
       inputSchema: searchLawsInputSchema,
       outputSchema: searchLawsOutputSchema,
       annotations: toolAnnotations,

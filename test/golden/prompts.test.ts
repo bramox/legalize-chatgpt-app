@@ -68,16 +68,19 @@ describe("Golden Prompt Routing", () => {
         assert.ok(ley2007Result.article_matches, "Result should include article_matches");
         assert.ok(ley2007Result.article_matches.length > 0, "article_matches should have entries");
 
-        const firstMatch = ley2007Result.article_matches[0];
+        assert.ok(ley2007Result.next_tool, "Result should include next_tool");
+        assert.strictEqual(ley2007Result.next_tool.name, "get_article");
+
         const articleResult = await handleGetArticle(db, {
-          identifier: ley2007Result.citation.identifier,
-          article_number: firstMatch.article_number,
+          identifier: ley2007Result.next_tool.arguments.identifier,
+          article_number: ley2007Result.next_tool.arguments.article_number,
+          jurisdiction: ley2007Result.next_tool.arguments.jurisdiction,
         });
 
         assert.strictEqual(articleResult.ok, true);
         if (articleResult.ok) {
           assert.ok(articleResult.article);
-          assert.strictEqual(articleResult.article.article_number, firstMatch.article_number);
+          assert.strictEqual(articleResult.article.article_number, ley2007Result.next_tool.arguments.article_number);
         }
       }
     });

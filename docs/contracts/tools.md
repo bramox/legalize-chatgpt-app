@@ -128,7 +128,15 @@ Output schema:
           "score": 8.5,
           "matched_fields": ["body"]
         }
-      ]
+      ],
+      "next_tool": {
+        "name": "get_article",
+        "arguments": {
+          "identifier": "BOE-A-2007-13409",
+          "article_number": "38 ter",
+          "jurisdiction": "es"
+        }
+      }
     }
   ],
   "next_cursor": null
@@ -136,6 +144,8 @@ Output schema:
 ```
 
 `article_matches` is an optional array of compact article-level routing hints. When present, each match includes `article_number` (canonical form), `heading_path`, a short `snippet`, and optional `score`/`matched_fields`. Use `citation.identifier` and `article_matches[0].article_number` to retrieve the full article text with `get_article`.
+
+`next_tool` is an optional copy-ready hint for the next tool call. When present, it contains a pre-structured `get_article` call with `identifier`, `article_number`, and `jurisdiction` from the search result. Use this to retrieve full article text before answering legal questions. `next_tool` is only included when a result has at least one `article_matches` entry. For title-only results without article matches, `next_tool` is absent.
 
 ## get_law_metadata
 

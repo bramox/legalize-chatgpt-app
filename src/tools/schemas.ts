@@ -160,6 +160,19 @@ const articleMatchSchema = z
   })
   .strict();
 
+const nextToolSchema = z
+  .object({
+    name: z.literal("get_article"),
+    arguments: z
+      .object({
+        identifier: z.string(),
+        article_number: z.string(),
+        jurisdiction: z.string(),
+      })
+      .strict(),
+  })
+  .strict();
+
 const searchResultSchema = z
   .object({
     citation: sharedCitationSchema,
@@ -167,6 +180,7 @@ const searchResultSchema = z
     score: z.number(),
     matched_fields: z.array(z.string()),
     article_matches: z.array(articleMatchSchema).optional(),
+    next_tool: nextToolSchema.optional(),
   })
   .strict();
 
