@@ -10,6 +10,7 @@ import { openDatabase, type LawDatabase } from "./store/database.js";
 
 const serviceName = "Spanish Law Research";
 const version = process.env.npm_package_version ?? "0.0.0";
+const openAiAppsChallengeToken = "qaxcJBxdYVyBldTBcSDEan1QSK0P-FxFCHdmuVzYlZE";
 const rateWindowMs = 60 * 1000;
 const toolRateBuckets = new Map<string, { count: number; resetAt: number }>();
 
@@ -116,6 +117,10 @@ export function buildServer(options: BuildServerOptions = {}) {
     version,
     disclaimer: "This service provides legal research information, not legal advice.",
   }));
+
+  server.get("/.well-known/openai-apps-challenge", async (_request, reply) =>
+    reply.type("text/plain; charset=utf-8").send(openAiAppsChallengeToken),
+  );
 
   server.post(
     "/mcp",

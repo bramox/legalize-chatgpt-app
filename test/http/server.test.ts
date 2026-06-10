@@ -60,6 +60,18 @@ describe("HTTP Server", () => {
     });
   });
 
+  describe("OpenAI Apps Challenge", () => {
+    it("serves the verification token at the well-known URL", async () => {
+      const response = await fetch(`${baseUrl}/.well-known/openai-apps-challenge`);
+      assert.strictEqual(response.status, 200);
+      assert.ok(response.headers.get("content-type")?.includes("text/plain"));
+      assert.strictEqual(
+        await response.text(),
+        "qaxcJBxdYVyBldTBcSDEan1QSK0P-FxFCHdmuVzYlZE",
+      );
+    });
+  });
+
   describe("MCP Endpoint", () => {
     it("supports Streamable HTTP listTools and callTool", async () => {
       const client = new Client({
