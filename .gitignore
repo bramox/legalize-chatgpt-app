@@ -3,7 +3,15 @@
 .env.*
 !.env.example
 .railway-token
+
+# Agent and assistant workflow artifacts
 .agent/
+.devin/
+.codex/
+.claude/
+AGENTS.md
+CLAUDE.md
+docs/tasks/
 
 node_modules/
 dist/
