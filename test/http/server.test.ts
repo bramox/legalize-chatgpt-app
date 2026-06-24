@@ -2,8 +2,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert";
+import * as path from "node:path";
 import { buildServer } from "../../src/server.js";
 import { config } from "../../src/config.js";
+import { openDatabase } from "../../src/store/database.js";
 import { cleanupTempDir, buildMinimalTestDatabase, createTempDir } from "../helpers/setup.js";
 
 describe("HTTP Server", () => {
@@ -45,6 +47,38 @@ describe("HTTP Server", () => {
       assert.ok(data.timestamp);
       assert.strictEqual(data.dbPath, undefined);
       assert.strictEqual(data.dataDir, undefined);
+
+      const database = data.database as Record<string, unknown>;
+      assert.strictEqual(database.ready, true);
+    });
+
+    it("marks an empty database as not ready", async () => {
+      const emptyTempDir = await createTempDir();
+      const emptyDb = await openDatabase(path.join(emptyTempDir, "empty.db"));
+      const emptyServer = buildServer({ database: emptyDb, logger: false });
+
+      try {
+        await emptyServer.listen({ port: 0, host: "127.0.0.1" });
+        const address = emptyServer.server.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Server address not available");
+        }
+
+        const response = await fetch(`http://127.0.0.1:${address.port}/healthz`);
+        assert.strictEqual(response.status, 200);
+
+        const data = (await response.json()) as Record<string, unknown>;
+        assert.strictEqual(data.ok, false);
+
+        const database = data.database as Record<string, unknown>;
+        assert.strictEqual(database.ready, false);
+        assert.strictEqual(database.lawCount, 0);
+        assert.strictEqual(database.articleCount, 0);
+      } finally {
+        await emptyServer.close();
+        emptyDb.close();
+        await cleanupTempDir(emptyTempDir);
+      }
     });
   });
 

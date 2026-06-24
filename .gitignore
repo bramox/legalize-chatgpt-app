@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 .railway-token
+.agent/
 
 node_modules/
 dist/

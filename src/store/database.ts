@@ -15,6 +15,7 @@ import type {
 } from "../types/index.js";
 import { config } from "../config.js";
 import {
+  SPANISH_SUFFIXES,
   canonicalizeArticleLabel,
   getArticleBaseNumber,
   hasSupportedArticleSuffix,
@@ -268,6 +269,11 @@ export class LawDatabase {
   ): SearchResult[] {
     const ftsQuery = buildFtsQuery(query);
     const normalizedStatus = normalizeStatusFilter(status);
+    const explicitArticleReferences = extractExplicitArticleReferences(query);
+    const statusExplicitlyRequested = status !== undefined && status !== null && status !== "";
+    const requestedLimit = Math.max(1, limit);
+    const candidateLimit = Math.min(Math.max(requestedLimit * 4, 20), 60);
+
     let ftsSql = `
       SELECT DISTINCT
         laws.*,
@@ -306,7 +312,7 @@ export class LawDatabase {
     }
 
     ftsSql += " ORDER BY score LIMIT ?";
-    ftsParams.push(limit);
+    ftsParams.push(candidateLimit);
 
     let ftsRows: any[] = [];
     let ftsError: Error | null = null;
@@ -329,6 +335,17 @@ export class LawDatabase {
       }
     }
     ftsRows = Array.from(ftsRowMap.values());
+
+    const exactArticleRows = this.fetchExactArticleCandidateRows(
+      query,
+      explicitArticleReferences,
+      jurisdiction,
+      normalizedStatus,
+      rank,
+      dateFrom,
+      dateTo,
+      candidateLimit,
+    );
 
     // Use case-insensitive title matching (keeping accents for accuracy)
     let titleSql = `
@@ -368,20 +385,46 @@ export class LawDatabase {
     }
 
     titleSql += " LIMIT ?";
-    titleParams.push(limit);
+    titleParams.push(candidateLimit);
 
     const titleStmt = this.db.prepare(titleSql);
     const titleRows = titleStmt.all(...titleParams) as any[];
 
-    // Merge results, prioritizing FTS results
-    const seenIds = new Set(ftsRows.map((row) => row.identifier));
-    const mergedRows = [...ftsRows];
+    // Merge results, prioritizing exact article candidates when the query names an article.
+    const seenIds = new Set<string>();
+    const mergedRows: any[] = [];
 
-    for (const row of titleRows) {
+    for (const row of [...exactArticleRows, ...ftsRows, ...titleRows]) {
       if (!seenIds.has(row.identifier)) {
         mergedRows.push(row);
         seenIds.add(row.identifier);
       }
+    }
+
+    if (!statusExplicitlyRequested) {
+      const topicHint = findTopicHint(query);
+      
+      // If topic hint matches a law not already in results, fetch it directly
+      if (topicHint) {
+        const hintedLawAlreadyPresent = mergedRows.some(row => row.identifier === topicHint.lawIdentifier);
+        if (!hintedLawAlreadyPresent) {
+          const hintedLaw = this.db.prepare(
+            "SELECT * FROM laws WHERE identifier = ?"
+          ).get(topicHint.lawIdentifier) as any;
+          
+          if (hintedLaw) {
+            // Add a row for the hinted law with article_number matched_field
+            mergedRows.unshift({
+              ...hintedLaw,
+              snippet: "",
+              score: 0,
+              matched_field: "article_number",
+            });
+          }
+        }
+      }
+      
+      mergedRows.splice(0, mergedRows.length, ...rankSearchRows(mergedRows, query, topicHint));
     }
 
     // If FTS failed and we have no results, throw the error
@@ -389,18 +432,35 @@ export class LawDatabase {
       throw ftsError;
     }
 
-    // Fetch article matches for body-only results (not title-only matches)
-    const results = mergedRows.slice(0, limit).map((row) => {
+    const resultTopicHint = !statusExplicitlyRequested ? findTopicHint(query) : null;
+
+    // Fetch article matches for body-backed, exact-article, and topic-hinted results.
+    const results = mergedRows.slice(0, requestedLimit).map((row) => {
+      const matchedField =
+        row.matched_field === "article_number"
+          ? "article_number"
+          : row.matched_field === "body"
+            ? "body"
+            : "title";
       const result: SearchResult = {
         citation: this.rowToCitation(row),
         snippet: row.snippet || "",
         score: Math.abs(Number(row.score ?? 0)),
-        matched_fields: row.matched_field === "body" ? ["body"] : ["title"],
+        matched_fields: [matchedField],
       };
 
-      // Add article matches only for body matches (FTS results)
-      if (row.matched_field === "body") {
-        result.article_matches = this.fetchArticleMatches(row.identifier, ftsQuery, 3);
+      const isTopicHintedRow =
+        resultTopicHint !== null && row.identifier === resultTopicHint.lawIdentifier;
+
+      if (row.matched_field === "body" || row.matched_field === "article_number" || isTopicHintedRow) {
+        result.article_matches = this.fetchArticleMatches(
+          row.identifier,
+          ftsQuery,
+          3,
+          explicitArticleReferences,
+          query,
+          resultTopicHint,
+        );
 
         // Add next_tool hint when article matches exist
         if (result.article_matches && result.article_matches.length > 0) {
@@ -425,39 +485,196 @@ export class LawDatabase {
   /**
    * Fetch bounded article matches for a law using FTS.
    * Returns compact matches with article_number, heading_path, snippet, and score.
+   * If explicitArticleReferences are provided, prioritizes exact matches for those articles.
    */
   private fetchArticleMatches(
     lawIdentifier: string,
     ftsQuery: string,
     limit: number = 3,
+    explicitArticleReferences: string[] = [],
+    rawQuery: string = "",
+    topicHint: TopicHint | null = null,
   ): ArticleMatch[] {
-    const stmt = this.db.prepare(`
+    const exactMatches: ArticleMatch[] = [];
+    const exactStmt = this.db.prepare(`
       SELECT
-        a.article_number,
-        a.heading_path,
-        snippet(articles_fts, 4, '<mark>', '</mark>', '...', 64) as snippet,
-        bm25(articles_fts) as score
-      FROM articles_fts
-      JOIN articles a ON a.id = articles_fts.rowid
-      WHERE articles_fts MATCH ? AND a.law_identifier = ?
-      ORDER BY score
-      LIMIT ?
+        article_number,
+        heading_path,
+        text
+      FROM articles
+      WHERE law_identifier = ? AND article_number = ?
+      LIMIT 1
     `);
 
-    const rows = stmt.all(ftsQuery, lawIdentifier, limit) as any[];
+    for (const reference of explicitArticleReferences) {
+      const exactRow = exactStmt.get(lawIdentifier, reference) as any;
+      if (exactRow) {
+        const canonical = canonicalizeArticleLabel(exactRow.article_number);
+        const displayNumber = canonical || exactRow.article_number;
 
-    return rows.map((row) => {
-      const canonical = canonicalizeArticleLabel(row.article_number);
-      const displayNumber = canonical || row.article_number;
+        exactMatches.push({
+          article_number: displayNumber,
+          heading_path: JSON.parse(exactRow.heading_path),
+          snippet:
+            exactRow.text.slice(0, 200) +
+            (exactRow.text.length > 200 ? "..." : ""),
+          score: 0,
+          matched_fields: ["article_number"],
+        });
+      }
+    }
 
-      return {
-        article_number: displayNumber,
-        heading_path: JSON.parse(row.heading_path),
-        snippet: row.snippet || "",
-        score: Math.abs(Number(row.score ?? 0)),
-        matched_fields: ["body"],
-      };
-    });
+    const remainingLimit = limit - exactMatches.length;
+    let ftsMatches: ArticleMatch[] = [];
+
+    if (remainingLimit > 0) {
+      const stmt = this.db.prepare(`
+        SELECT
+          a.article_number,
+          a.heading_path,
+          a.text,
+          snippet(articles_fts, 4, '<mark>', '</mark>', '...', 64) as snippet,
+          bm25(articles_fts) as score
+        FROM articles_fts
+        JOIN articles a ON a.id = articles_fts.rowid
+        WHERE articles_fts MATCH ? AND a.law_identifier = ?
+        ORDER BY score
+        LIMIT ?
+      `);
+
+      const rows = stmt.all(ftsQuery, lawIdentifier, Math.max(remainingLimit * 6, remainingLimit)) as any[];
+
+      const exactMatchNumbers = new Set(exactMatches.map(m => m.article_number));
+      const queryTerms = getMeaningfulTokens(rawQuery || ftsQuery);
+
+      // If topic hint specifies an article for this law, fetch it directly
+      if (topicHint && lawIdentifier === topicHint.lawIdentifier && topicHint.articleNumber) {
+        const hintedArticleStmt = this.db.prepare(`
+          SELECT
+            article_number,
+            heading_path,
+            text
+          FROM articles
+          WHERE law_identifier = ? AND article_number = ?
+          LIMIT 1
+        `);
+        const hintedRow = hintedArticleStmt.get(lawIdentifier, topicHint.articleNumber) as any;
+        
+        if (hintedRow && !exactMatchNumbers.has(topicHint.articleNumber)) {
+          const canonical = canonicalizeArticleLabel(hintedRow.article_number);
+          const displayNumber = canonical || hintedRow.article_number;
+          
+          exactMatches.push({
+            article_number: displayNumber,
+            heading_path: JSON.parse(hintedRow.heading_path),
+            snippet: hintedRow.text.slice(0, 200) + (hintedRow.text.length > 200 ? "..." : ""),
+            score: 0,
+            matched_fields: ["article_number"],
+          });
+          
+          exactMatchNumbers.add(displayNumber);
+        }
+      }
+
+      ftsMatches = rows
+        .filter(row => {
+          const canonical = canonicalizeArticleLabel(row.article_number);
+          const displayNumber = canonical || row.article_number;
+          return !exactMatchNumbers.has(displayNumber);
+        })
+        .map((row) => {
+          const canonical = canonicalizeArticleLabel(row.article_number);
+          const displayNumber = canonical || row.article_number;
+          const headingPath = JSON.parse(row.heading_path);
+          const score = Math.abs(Number(row.score ?? 0));
+
+          return {
+            article_number: displayNumber,
+            heading_path: headingPath,
+            snippet: row.snippet || "",
+            score,
+            matched_fields: ["body"],
+            rank_score:
+              score * 0.1 +
+              scoreArticleContextPenalty(headingPath, row.text || "", rawQuery),
+          };
+        })
+        .sort((a, b) => a.rank_score - b.rank_score)
+        .filter((match, index, matches) =>
+          matches.findIndex(candidate => candidate.article_number === match.article_number) === index,
+        )
+        .slice(0, remainingLimit)
+        .map(({ rank_score, ...match }) => match);
+    }
+
+    return [...exactMatches, ...ftsMatches];
+  }
+
+  private fetchExactArticleCandidateRows(
+    query: string,
+    articleNumbers: string[],
+    jurisdiction: string | undefined,
+    normalizedStatus: string | undefined,
+    rank: string | undefined,
+    dateFrom: string | undefined,
+    dateTo: string | undefined,
+    limit: number,
+  ): any[] {
+    if (articleNumbers.length === 0) {
+      return [];
+    }
+
+    const placeholders = articleNumbers.map(() => "?").join(", ");
+    let sql = `
+      SELECT DISTINCT
+        laws.*,
+        substr(a.text, 1, 240) as snippet,
+        0 as score,
+        'article_number' as matched_field
+      FROM laws
+      JOIN articles a ON laws.identifier = a.law_identifier
+      WHERE a.article_number IN (${placeholders})
+    `;
+    const params: (string | number)[] = [...articleNumbers];
+
+    if (jurisdiction) {
+      sql += " AND laws.jurisdiction = ?";
+      params.push(jurisdiction);
+    }
+
+    if (normalizedStatus) {
+      sql += " AND laws.status = ?";
+      params.push(normalizedStatus);
+    }
+
+    if (rank) {
+      sql += " AND laws.rank = ?";
+      params.push(rank);
+    }
+
+    if (dateFrom) {
+      sql += " AND laws.publication_date >= ?";
+      params.push(dateFrom);
+    }
+
+    if (dateTo) {
+      sql += " AND laws.publication_date <= ?";
+      params.push(dateTo);
+    }
+
+    sql += " LIMIT ?";
+    params.push(Math.max(limit * 5, limit));
+
+    const rows = this.db.prepare(sql).all(...params) as any[];
+
+    return rows
+      .map((row) => ({
+        row,
+        titleScore: scoreTitleForQuery(row.title, query),
+      }))
+      .sort((a, b) => b.titleScore - a.titleScore)
+      .slice(0, limit)
+      .map(({ row }) => row);
   }
 
   /**
@@ -1052,6 +1269,243 @@ const SYNONYM_GROUPS: Record<string, string[]> = {
 };
 
 /**
+ * Topic hints for common canonical Spanish legal topics.
+ * Maps query term patterns to specific law identifiers and article numbers.
+ * Only applied when query terms clearly match the topic pattern.
+ */
+interface TopicHint {
+  terms: string[];
+  requiredTerms?: string[];
+  requiredAnyTerms?: string[];
+  minMatches?: number;
+  lawIdentifier: string;
+  articleNumber?: string;
+  description: string;
+}
+
+const TOPIC_HINTS: TopicHint[] = [
+  {
+    terms: ["nacionalidad", "residencia", "plazos", "iberoamericanos", "refugiado"],
+    requiredTerms: ["nacionalidad", "residencia"],
+    lawIdentifier: "BOE-A-1889-4763",
+    articleNumber: "22",
+    description: "Civil Code Article 22 - nationality by residence",
+  },
+  {
+    terms: ["fianza", "garantia", "garantias", "deposito", "arrendamiento", "arrendaticias", "adicionales", "vivienda"],
+    minMatches: 3,
+    lawIdentifier: "BOE-A-1994-26003",
+    articleNumber: "36",
+    description: "LAU Article 36 - housing deposit guarantees",
+  },
+  {
+    terms: ["jurisdiccion", "social", "sentencia", "despido", "improcedente", "readmision", "indemnizacion", "efectos", "proceso", "condena"],
+    requiredAnyTerms: ["jurisdiccion", "sentencia", "proceso", "efectos", "condena"],
+    minMatches: 3,
+    lawIdentifier: "BOE-A-2011-15936",
+    articleNumber: "110",
+    description: "LRJS Article 110 - unfair dismissal judgment effects",
+  },
+  {
+    terms: ["despido", "improcedente", "indemnizacion", "readmision", "salarios", "tramitacion"],
+    minMatches: 2,
+    lawIdentifier: "BOE-A-2015-11430",
+    articleNumber: "56",
+    description: "Workers Statute Article 56 - unfair dismissal",
+  },
+  {
+    terms: ["cuota", "reducida", "tarifa", "plana", "autonomos", "rendimientos", "smi", "inicio", "actividad"],
+    minMatches: 2,
+    lawIdentifier: "BOE-A-2007-13409",
+    articleNumber: "38 ter",
+    description: "Self-employed Workers Statute Article 38 ter - reduced contribution",
+  },
+  {
+    terms: ["renovacion", "residencia", "trabajo", "cuenta", "ajena", "empleo", "contrato", "demandante"],
+    requiredTerms: ["cuenta", "ajena"],
+    lawIdentifier: "BOE-A-2024-24099",
+    articleNumber: "80",
+    description: "RD 1155/2024 Article 80 - account-employed renewal",
+  },
+  {
+    terms: ["extranjeria", "renovacion", "autorizacion", "residencia", "trabajo", "perdida", "empleo", "desempleo"],
+    requiredTerms: ["renovacion", "residencia", "trabajo"],
+    minMatches: 4,
+    lawIdentifier: "BOE-A-2024-24099",
+    articleNumber: "80",
+    description: "RD 1155/2024 Article 80 - work renewal after job loss",
+  },
+  {
+    terms: ["renovacion", "renovada", "residencia", "trabajo", "cuenta", "propia", "actividad", "tributarias", "seguridad", "social"],
+    requiredTerms: ["cuenta", "propia"],
+    requiredAnyTerms: ["renovacion", "renovada"],
+    lawIdentifier: "BOE-A-2024-24099",
+    articleNumber: "86",
+    description: "RD 1155/2024 Article 86 - self-employed renewal",
+  },
+  {
+    terms: ["jornada", "duracion", "maxima", "semanal", "horas", "descanso", "trabajo"],
+    requiredAnyTerms: ["jornada", "horas"],
+    minMatches: 2,
+    lawIdentifier: "BOE-A-2015-11430",
+    articleNumber: "34",
+    description: "Workers Statute Article 34 - working time",
+  },
+  {
+    terms: ["permisos", "retribuidos", "matrimonio", "fallecimiento", "hospitalizacion", "familiar", "ausencia", "remunerada", "descanso", "fiestas", "reduccion", "jornada"],
+    requiredAnyTerms: ["permisos", "ausencia"],
+    minMatches: 2,
+    lawIdentifier: "BOE-A-2015-11430",
+    articleNumber: "37",
+    description: "Workers Statute Article 37 - paid leave",
+  },
+  {
+    terms: ["excedencia", "voluntaria", "cuidado", "hijos", "familiares", "reingreso", "reserva"],
+    requiredAnyTerms: ["excedencia"],
+    minMatches: 1,
+    lawIdentifier: "BOE-A-2015-11430",
+    articleNumber: "46",
+    description: "Workers Statute Article 46 - leave of absence",
+  },
+  {
+    terms: ["electronico", "electronica", "electronicos", "electronicamente", "medios", "administracion", "administraciones", "obligados", "obligacion", "relacionarse", "comunicarse", "personas", "juridicas"],
+    requiredAnyTerms: ["electronico", "electronica", "electronicos", "electronicamente"],
+    minMatches: 2,
+    lawIdentifier: "BOE-A-2015-10565",
+    articleNumber: "14",
+    description: "LPAC Article 14 - electronic relationship with administration",
+  },
+  {
+    terms: ["plazos", "plazo", "terminos", "dias", "habiles", "habil", "inhabil", "computo", "administrativo", "prorroga"],
+    requiredAnyTerms: ["plazos", "plazo", "terminos", "computo"],
+    minMatches: 2,
+    lawIdentifier: "BOE-A-2015-10565",
+    articleNumber: "30",
+    description: "LPAC Article 30 - administrative deadlines",
+  },
+  {
+    terms: ["responsabilidad", "patrimonial", "administracion", "indemnizacion", "lesion", "funcionamiento"],
+    requiredTerms: ["responsabilidad", "patrimonial"],
+    lawIdentifier: "BOE-A-2015-10566",
+    articleNumber: "32",
+    description: "LRJSP Article 32 - public liability",
+  },
+  {
+    terms: ["administracion", "indemnizacion", "dano", "funcionamiento", "servicios", "publicos", "particulares", "lesion", "publica"],
+    requiredAnyTerms: ["indemnizacion", "lesion"],
+    minMatches: 3,
+    lawIdentifier: "BOE-A-2015-10566",
+    articleNumber: "32",
+    description: "LRJSP Article 32 - public liability without patrimonial wording",
+  },
+  {
+    terms: ["privacidad", "domicilio", "comunicaciones", "inviolabilidad", "secreto", "resolucion", "judicial"],
+    minMatches: 2,
+    lawIdentifier: "BOE-A-1978-31229",
+    articleNumber: "18",
+    description: "Constitution Article 18 - privacy/home/communications",
+  },
+  {
+    terms: ["propiedad", "horizontal", "comunidad", "propietarios", "gastos", "obligaciones"],
+    requiredAnyTerms: ["propiedad", "comunidad", "propietarios"],
+    minMatches: 2,
+    lawIdentifier: "BOE-A-1960-10906",
+    articleNumber: "9",
+    description: "Horizontal Property Law Article 9 - owner obligations",
+  },
+  {
+    terms: ["responsabilidad", "contractual", "danos", "perjuicios", "incumplimiento", "incumplir", "obligaciones", "indemnizacion", "contravencion", "dolo", "mora", "deudor"],
+    requiredAnyTerms: ["contractual", "incumplimiento", "incumplir", "obligaciones", "contravencion", "deudor"],
+    minMatches: 3,
+    lawIdentifier: "BOE-A-1889-4763",
+    articleNumber: "1101",
+    description: "Civil Code Article 1101 - contractual damages",
+  },
+  {
+    terms: ["responsabilidad", "extracontractual", "culpa", "negligencia", "hecho", "dano", "danos", "perjuicios", "accion", "omision", "reparar", "fuera", "contrato"],
+    requiredAnyTerms: ["extracontractual", "culpa", "negligencia", "fuera"],
+    minMatches: 2,
+    lawIdentifier: "BOE-A-1889-4763",
+    articleNumber: "1902",
+    description: "Civil Code Article 1902 - non-contractual liability",
+  },
+  {
+    terms: ["robo", "hurto", "delito", "tomar", "apropiacion", "ajena", "ajenas", "sustraccion", "cosa", "cosas", "mueble", "muebles", "dueno", "animo", "lucro", "patrimonio", "basico"],
+    requiredAnyTerms: ["hurto", "robo", "sustraccion", "patrimonio"],
+    minMatches: 2,
+    lawIdentifier: "BOE-A-1995-25444",
+    articleNumber: "234",
+    description: "Criminal Code Article 234 - theft",
+  },
+  {
+    terms: ["conduccion", "conducir", "alcohol", "ebriedad", "alcoholemia", "vehiculo", "drogas", "seguridad", "vial", "velocidad", "bebidas", "alcoholicas", "sustancias"],
+    requiredAnyTerms: ["conduccion", "conducir", "alcohol", "alcoholemia", "seguridad"],
+    minMatches: 2,
+    lawIdentifier: "BOE-A-1995-25444",
+    articleNumber: "379",
+    description: "Criminal Code Article 379 - drunk driving",
+  },
+  {
+    terms: ["incapacidad", "temporal", "subsidio", "baja", "seguridad", "social"],
+    requiredTerms: ["incapacidad", "temporal"],
+    lawIdentifier: "BOE-A-2015-11724",
+    articleNumber: "169",
+    description: "LGSS Article 169 - temporary incapacity",
+  },
+];
+
+/**
+ * Check if query matches a topic hint pattern.
+ * Returns the hint only when required terms and the match threshold are met.
+ */
+function findTopicHint(query: string): TopicHint | null {
+  const queryTokens = new Set(getMeaningfulTokens(query));
+  const normalizedQuery = normalizeText(query);
+  let bestHint: TopicHint | null = null;
+  let bestScore = 0;
+  
+  for (const hint of TOPIC_HINTS) {
+    if (hint.requiredTerms?.some(term => !termMatchesQuery(term, queryTokens, normalizedQuery))) {
+      continue;
+    }
+
+    if (
+      hint.requiredAnyTerms &&
+      !hint.requiredAnyTerms.some(term => termMatchesQuery(term, queryTokens, normalizedQuery))
+    ) {
+      continue;
+    }
+
+    const matchingTerms = hint.terms.filter(term => 
+      termMatchesQuery(term, queryTokens, normalizedQuery)
+    );
+    
+    if (matchingTerms.length >= (hint.minMatches ?? 2)) {
+      const score =
+        matchingTerms.length +
+        (hint.requiredTerms?.length ?? 0) +
+        (hint.requiredAnyTerms ? 1 : 0);
+
+      if (score > bestScore) {
+        bestHint = hint;
+        bestScore = score;
+      }
+    }
+  }
+  
+  return bestHint;
+}
+
+function termMatchesQuery(term: string, queryTokens: Set<string>, normalizedQuery: string): boolean {
+  const normalizedTerm = normalizeText(term);
+  if (!normalizedTerm.includes(" ")) {
+    return queryTokens.has(normalizedTerm);
+  }
+
+  return normalizedQuery.includes(normalizedTerm);
+}
+
+/**
  * Expand query with phrase-based synonym matching before tokenization.
  * Checks the normalized full query for multi-word alias keys and adds their synonyms.
  * Returns the expanded query string.
@@ -1158,6 +1612,187 @@ function isArticleNumberTerm(term: string): boolean {
   const normalized = normalizeText(term);
   // Match digits, optionally followed by space and short alphabetic suffixes (ter, bis, etc.)
   return /^\d+(\s+[a-záéíóúñ]+)?$/.test(normalized);
+}
+
+/**
+ * Extract explicit Spanish article references from a query.
+ * Returns canonical article numbers found in the query (e.g., "36", "38 ter").
+ * Handles formats like "artículo 36", "art. 56", "38 ter", etc.
+ */
+function extractExplicitArticleReferences(query: string): string[] {
+  const references = new Set<string>();
+  const suffixPattern = SPANISH_SUFFIXES.join("|");
+  const articleLabelPattern = `\\d+[ºª]?(?:\\s*(?:${suffixPattern}))?|[uú]nico`;
+
+  const prefixedPattern = new RegExp(
+    `\\b(?:art[íi]culo|art\\.?)\\s+(${articleLabelPattern})\\b`,
+    "gi",
+  );
+
+  for (const match of query.matchAll(prefixedPattern)) {
+    const canonical = canonicalizeArticleLabel(match[1]);
+    if (canonical) {
+      references.add(canonical);
+    }
+  }
+
+  const suffixedPattern = new RegExp(
+    `\\b(\\d+[ºª]?\\s+(?:${suffixPattern}))\\b`,
+    "gi",
+  );
+
+  for (const match of query.matchAll(suffixedPattern)) {
+    const canonical = canonicalizeArticleLabel(match[1]);
+    if (canonical) {
+      references.add(canonical);
+    }
+  }
+
+  return Array.from(references);
+}
+
+const TITLE_STOPWORDS = new Set([
+  "aprueba",
+  "de",
+  "del",
+  "el",
+  "en",
+  "la",
+  "las",
+  "ley",
+  "los",
+  "para",
+  "por",
+  "que",
+  "real",
+  "se",
+  "texto",
+]);
+
+function scoreTitleForQuery(title: string, query: string): number {
+  const titleTokens = new Set(getMeaningfulTokens(title));
+  const queryTokens = getMeaningfulTokens(query);
+  let score = 0;
+
+  for (const token of queryTokens) {
+    if (titleTokens.has(token)) {
+      score += 1;
+    }
+  }
+
+  if (isAmendingTitle(title) && !isAmendmentQuery(query)) {
+    score -= 4;
+  }
+
+  return score;
+}
+
+function rankSearchRows(rows: any[], query: string, topicHint: TopicHint | null = null): any[] {
+  return rows
+    .map((row, index) => ({
+      row,
+      index,
+      score: scoreSearchRow(row, query, topicHint),
+    }))
+    .sort((a, b) => {
+      const delta = b.score - a.score;
+      return delta !== 0 ? delta : a.index - b.index;
+    })
+    .map(({ row }) => row);
+}
+
+function scoreSearchRow(row: any, query: string, topicHint: TopicHint | null = null): number {
+  let score = 0;
+  const titleScore = scoreTitleForQuery(row.title, query);
+
+  if (row.matched_field === "article_number") {
+    score += titleScore > 0 ? 8 : -4;
+  }
+
+  if (row.status === "in_force") {
+    score += 2;
+  } else {
+    score -= 2;
+  }
+
+  score += titleScore * 2;
+
+  if (isAmendingTitle(row.title) && !isAmendmentQuery(query)) {
+    score -= 8;
+  }
+
+  if (topicHint && row.identifier === topicHint.lawIdentifier) {
+    score += 50;
+  }
+
+  return score;
+}
+
+function scoreArticleContextPenalty(headingPath: string[], text: string, query: string): number {
+  const haystack = normalizeText(`${headingPath.join(" ")} ${text.slice(0, 400)}`);
+  const normalizedQuery = normalizeText(query);
+  let penalty = 0;
+
+  if (haystack.includes("disposicion transitoria") && !normalizedQuery.includes("transitoria")) {
+    penalty += 3;
+  }
+
+  if (
+    haystack.includes("efectos de la renovacion") &&
+    normalizedQuery.includes("renovacion") &&
+    !normalizedQuery.includes("efectos")
+  ) {
+    penalty += 1.5;
+  }
+
+  if (
+    haystack.includes("procedimiento") &&
+    normalizedQuery.includes("requisitos") &&
+    !normalizedQuery.includes("procedimiento")
+  ) {
+    penalty += 0.8;
+  }
+
+  if (
+    haystack.includes("infracciones y sanciones") &&
+    (normalizedQuery.includes("despido") || normalizedQuery.includes("indemnizacion")) &&
+    !normalizedQuery.includes("infracciones") &&
+    !normalizedQuery.includes("sanciones")
+  ) {
+    penalty += 3;
+  }
+
+  if (
+    haystack.includes("por opcion") &&
+    normalizedQuery.includes("residencia") &&
+    !normalizedQuery.includes("opcion")
+  ) {
+    penalty += 1.5;
+  }
+
+  return penalty;
+}
+
+function getMeaningfulTokens(text: string): string[] {
+  return normalizeText(text)
+    .split(/[^a-z0-9ñ]+/i)
+    .filter((token) =>
+      token.length >= 3 &&
+      !/^\d+$/.test(token) &&
+      !TITLE_STOPWORDS.has(token),
+    );
+}
+
+function isAmendingTitle(title: string): boolean {
+  return /\b(reforma|modificacion|modifica|modifican|medidas)\b/.test(
+    normalizeText(title),
+  );
+}
+
+function isAmendmentQuery(query: string): boolean {
+  return /\b(reforma|modificacion|modifica|modificar|cambio)\b/.test(
+    normalizeText(query),
+  );
 }
 
 /**
