@@ -67,7 +67,6 @@ These surfaces must not be exposed by the public repository or by the public v1 
 - Global limit: 60 requests per minute per IP
 - Search limit: 20 search calls per minute per IP
 - Excerpt limit: 20 excerpt calls per minute per IP
-- Compare limit: 10 compare calls per minute per IP
 - Request size limit: 64 KB
 - Response size limit: 1 MB
 
@@ -92,6 +91,10 @@ These surfaces must not be exposed by the public repository or by the public v1 
 
 See [incident response runbook](../runbooks/incident-response.md) for operational procedures.
 
+## Production Deploy Runbook
+
+See [production deploy runbook](../runbooks/production-deploy.md) for the Railway production deployment procedure and smoke checks.
+
 ## Local Development
 
 For local development setup, see the main README.
@@ -100,8 +103,8 @@ For local development setup, see the main README.
 
 Production deployment requires:
 
-- Railway API token or project access
-- Railway project access
+- Railway project-scoped token or Railway CLI login with project access
+- Access to the production environment and `web` service
 - Public domain selection (Railway-managed or custom)
 - Environment variable configuration
 - Railway CLI or web console access

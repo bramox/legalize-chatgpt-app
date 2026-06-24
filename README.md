@@ -136,6 +136,7 @@ See [Security Policy](./SECURITY.md) for security details.
 - [Tool Contracts](./docs/contracts/tools.md) - MCP tool API documentation
 - [Deployment Overview](./docs/deployment/overview.md) - Deployment architecture and procedures
 - [Incident Response](./docs/runbooks/incident-response.md) - Operational runbook
+- [Production Deploy Runbook](./docs/runbooks/production-deploy.md) - Railway production deploy procedure
 - [Release Checklist](./docs/release/checklist.md) - Release procedures
 - [Maintainership Policy](./docs/release/maintainership.md) - Maintainer responsibilities
 - [App Metadata](./docs/release/app-metadata.md) - ChatGPT app submission details
