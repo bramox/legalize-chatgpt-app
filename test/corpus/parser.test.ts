@@ -223,6 +223,32 @@ Texto del artículo único.`;
       assert.ok(chunks[0].text.includes("Texto del artículo único"));
     });
 
+    it("should handle spelled Spanish ordinal article headings", () => {
+      const markdown = `# Ley 49/1960
+
+###### Artículo noveno.
+
+1. Son obligaciones de cada propietario:
+
+a) Respetar las instalaciones generales de la comunidad.
+
+###### Artículo décimo.
+
+Texto del artículo siguiente.`;
+      const chunks = chunkMarkdown(
+        markdown,
+        "BOE-A-1960-10906",
+        "es",
+        "abc123",
+        "es/BOE-A-1960-10906.md",
+      );
+
+      assert.strictEqual(chunks.length, 2);
+      assert.strictEqual(chunks[0].article_number, "9");
+      assert.strictEqual(chunks[1].article_number, "10");
+      assert.ok(chunks[0].text.includes("obligaciones de cada propietario"));
+    });
+
     it("should handle artículo with bis", () => {
       const markdown = `# TÍTULO I
 
@@ -370,6 +396,32 @@ Texto del tercer artículo.`;
       assert.strictEqual(chunks[1].article_number, "3");
       assert.strictEqual(chunks[0].chunk_index, 0);
       assert.strictEqual(chunks[1].chunk_index, 1);
+    });
+
+    it("should handle skipped heading levels without sibling inheritance", () => {
+      const markdown = `## TÍTULO I
+
+###### Artículo 36
+
+Texto del artículo treinta y seis.
+
+###### Artículo 37
+
+Texto del artículo treinta y siete.`;
+      const chunks = chunkMarkdown(
+        markdown,
+        "TEST-008",
+        "es",
+        "abc123",
+        "es/TEST-008.md",
+      );
+
+      assert.strictEqual(chunks.length, 2);
+      assert.strictEqual(chunks[0].article_number, "36");
+      assert.strictEqual(chunks[1].article_number, "37");
+
+      assert.deepStrictEqual(chunks[0].heading_path, ["TÍTULO I", "Artículo 36"]);
+      assert.deepStrictEqual(chunks[1].heading_path, ["TÍTULO I", "Artículo 37"]);
     });
   });
 
@@ -618,6 +670,12 @@ Content`;
     it("should handle 'Artículo 1º' with ordinal", () => {
       const result = canonicalizeArticleLabel("Artículo 1º");
       assert.strictEqual(result, "1º");
+    });
+
+    it("should handle spelled Spanish ordinal article labels", () => {
+      assert.strictEqual(canonicalizeArticleLabel("Artículo primero"), "1");
+      assert.strictEqual(canonicalizeArticleLabel("Artículo noveno."), "9");
+      assert.strictEqual(canonicalizeArticleLabel("Artículo décimo"), "10");
     });
 
     it("should handle whitespace variations", () => {

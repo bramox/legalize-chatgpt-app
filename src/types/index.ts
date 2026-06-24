@@ -81,6 +81,7 @@ export interface SyncState {
   last_successful_sync_at: string | null;
   last_indexed_revision: string | null;
   last_seen_remote_revision: string | null;
+  indexer_version?: number | null;
   law_count: number;
   chunk_count: number;
   reform_count: number;

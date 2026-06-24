@@ -25,6 +25,50 @@ const PREFIX_PATTERNS = [
 
 const SUFFIX_PATTERN = SPANISH_SUFFIXES.join("|");
 
+const ORDINAL_WORDS: Record<string, string> = {
+  primer: "1",
+  primero: "1",
+  segunda: "2",
+  segundo: "2",
+  tercer: "3",
+  tercera: "3",
+  tercero: "3",
+  cuarta: "4",
+  cuarto: "4",
+  quinta: "5",
+  quinto: "5",
+  sexta: "6",
+  sexto: "6",
+  septima: "7",
+  septimo: "7",
+  octava: "8",
+  octavo: "8",
+  novena: "9",
+  noveno: "9",
+  decima: "10",
+  decimo: "10",
+  undecima: "11",
+  undecimo: "11",
+  duodecima: "12",
+  duodecimo: "12",
+  decimotercera: "13",
+  decimotercero: "13",
+  decimocuarta: "14",
+  decimocuarto: "14",
+  decimoquinta: "15",
+  decimoquinto: "15",
+  decimosexta: "16",
+  decimosexto: "16",
+  decimoseptima: "17",
+  decimoseptimo: "17",
+  decimoctava: "18",
+  decimoctavo: "18",
+  decimonovena: "19",
+  decimonoveno: "19",
+  vigesima: "20",
+  vigesimo: "20",
+};
+
 /**
  * Normalize an article label to its canonical form.
  * Handles:
@@ -47,6 +91,8 @@ export function canonicalizeArticleLabel(label: string): string | null {
     normalized = normalized.replace(pattern, "");
   }
 
+  normalized = normalized.trim().replace(/[.:]+$/, "");
+
   for (const suffix of SPANISH_SUFFIXES) {
     const compactPattern = new RegExp(`(\\d+)${suffix}$`, "i");
     if (compactPattern.test(normalized)) {
@@ -67,7 +113,19 @@ export function canonicalizeArticleLabel(label: string): string | null {
     return normalized.toLowerCase();
   }
 
+  const ordinal = ORDINAL_WORDS[normalizeTextForLabel(normalized)];
+  if (ordinal) {
+    return ordinal;
+  }
+
   return null;
+}
+
+function normalizeTextForLabel(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 }
 
 /**

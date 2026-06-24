@@ -7,6 +7,7 @@ import { parseLawFile } from "./parser.js";
 import { createStagingDatabase, openDatabase, type LawDatabase } from "../store/database.js";
 
 const GIT_LOG_MAX_BUFFER_BYTES = 128 * 1024 * 1024;
+export const CORPUS_INDEXER_VERSION = 2;
 
 export interface CorpusBuildResult {
   lawCount: number;
@@ -462,6 +463,7 @@ export async function runCorpusSyncOnce(
     const retainedState = previousState ?? emptySyncState(checkedAt);
     await saveSyncState({
       ...retainedState,
+      indexer_version: CORPUS_INDEXER_VERSION,
       last_checked_at: checkedAt,
       last_seen_remote_revision: actualRemoteRevision,
     });
@@ -506,6 +508,7 @@ export async function runCorpusSyncOnce(
       last_successful_sync_at: checkedAt,
       last_indexed_revision: sourceRevision,
       last_seen_remote_revision: actualRemoteRevision,
+      indexer_version: CORPUS_INDEXER_VERSION,
       law_count: buildResult.lawCount,
       chunk_count: buildResult.chunkCount,
       reform_count: buildResult.reformCount,
@@ -626,6 +629,10 @@ export async function isSyncNeeded(
     return true;
   }
 
+  if ((actualSyncState.indexer_version ?? 1) !== CORPUS_INDEXER_VERSION) {
+    return true;
+  }
+
   if (!verifyActiveDatabase) {
     return false;
   }
@@ -691,6 +698,7 @@ function emptySyncState(checkedAt: string): SyncState {
     last_successful_sync_at: null,
     last_indexed_revision: null,
     last_seen_remote_revision: null,
+    indexer_version: CORPUS_INDEXER_VERSION,
     law_count: 0,
     chunk_count: 0,
     reform_count: 0,

@@ -12,6 +12,7 @@ import {
   buildReformHistoryIndex,
   promoteArtifacts,
   buildStagedCorpusDatabase,
+  CORPUS_INDEXER_VERSION,
   cleanupWorkspace,
   isSyncNeeded,
 } from "../../src/corpus/sync.js";
@@ -293,6 +294,7 @@ Invalid article text.`,
         last_successful_sync_at: "2025-01-01T01:00:00Z",
         last_indexed_revision: "current",
         last_seen_remote_revision: "current",
+        indexer_version: CORPUS_INDEXER_VERSION,
         law_count: 10,
         chunk_count: 100,
         reform_count: 50,
@@ -304,12 +306,31 @@ Invalid article text.`,
       assert.strictEqual(needed, false);
     });
 
+    it("should return true when the indexer version changes", async () => {
+      const state: SyncState = {
+        last_checked_at: "2025-01-01T00:00:00Z",
+        last_successful_sync_at: "2025-01-01T01:00:00Z",
+        last_indexed_revision: "current",
+        last_seen_remote_revision: "current",
+        indexer_version: CORPUS_INDEXER_VERSION - 1,
+        law_count: 10,
+        chunk_count: 100,
+        reform_count: 50,
+        skipped_count: 0,
+        error_count: 0,
+      };
+
+      const needed = await isSyncNeeded("current", state, { verifyActiveDatabase: false });
+      assert.strictEqual(needed, true);
+    });
+
     it("should return true when revisions match but the active database is empty", async () => {
       const state: SyncState = {
         last_checked_at: "2025-01-01T00:00:00Z",
         last_successful_sync_at: "2025-01-01T01:00:00Z",
         last_indexed_revision: "current",
         last_seen_remote_revision: "current",
+        indexer_version: CORPUS_INDEXER_VERSION,
         law_count: 10,
         chunk_count: 100,
         reform_count: 50,

@@ -99,15 +99,23 @@ export function buildServer(options: BuildServerOptions = {}) {
   server.get("/healthz", async () => {
     const storage = await getStorageStatus();
     const index = await getIndexStatus(server.log);
+    const database = db ? db.getStats() : null;
+    const databaseReady =
+      database !== null && database.lawCount > 0 && database.articleCount > 0;
 
     return {
-      ok: db !== null && storage.ok !== false,
+      ok: db !== null && storage.ok !== false && databaseReady,
       service: serviceName,
       version,
       timestamp: new Date().toISOString(),
       index,
       storage,
-      database: db ? db.getStats() : null,
+      database: database
+        ? {
+            ...database,
+            ready: databaseReady,
+          }
+        : null,
     };
   });
 

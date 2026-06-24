@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert";
-import { createMcpServer } from "../../src/mcp/server.js";
+import { SERVER_INSTRUCTIONS, createMcpServer } from "../../src/mcp/server.js";
 import { config } from "../../src/config.js";
 import { cleanupTempDir, buildMinimalTestDatabase, createTempDir } from "../helpers/setup.js";
 
@@ -155,10 +155,21 @@ describe("MCP Server", () => {
         assert.deepStrictEqual(tool._meta?.ui, { visibility: ["model"] });
         assert.strictEqual((tool._meta?.ui as Record<string, unknown>).resourceUri, undefined);
       }
+
+      const searchTool = result.tools.find((tool) => tool.name === "search_laws");
+      assert.ok(searchTool);
+      const searchDescription = searchTool.description ?? "";
+      assert.ok(searchDescription.includes("non-Spanish questions"));
+      assert.ok(searchDescription.includes("Spanish legal/source terms"));
     } finally {
       await client.close();
       await server.close();
     }
+  });
+
+  it("guides clients to rewrite non-Spanish questions before search", () => {
+    assert.ok(SERVER_INSTRUCTIONS.includes("Rewrite non-Spanish user questions"));
+    assert.ok(SERVER_INSTRUCTIONS.includes("Spanish legal/source terms"));
   });
 
   it("returns structured content for successful tool calls", async () => {
